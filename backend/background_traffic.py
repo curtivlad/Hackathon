@@ -14,7 +14,7 @@ import logging
 from typing import List, Tuple, Optional, Dict
 from agents import VehicleAgent
 from v2x_channel import channel
-
+#c
 logger = logging.getLogger("background_traffic")
 
 # ──────────────────────── Grid Configuration ────────────────────────
