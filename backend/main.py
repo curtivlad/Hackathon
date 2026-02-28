@@ -292,6 +292,15 @@ def get_history(last_n: int = 50):
     return {"history": channel.get_history(last_n)}
 
 
+# ─── Telemetry endpoint ─────────────────────────────────────────────────────
+
+@app.get("/telemetry/report", dependencies=[Depends(verify_token)])
+def get_telemetry_report():
+    """Raport de performanta: coliziuni prevenite, throughput, scor cooperare."""
+    from telemetry import telemetry
+    return telemetry.generate_report()
+
+
 # ─── Security monitoring endpoint ──────────────────────────────────────────
 
 @app.get("/security/stats", dependencies=[Depends(verify_token)])

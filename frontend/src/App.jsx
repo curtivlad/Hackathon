@@ -1,19 +1,26 @@
 import React, { useState, useCallback } from 'react';
 import { useWebSocket } from './hooks/useWebSocket';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import IntersectionMap from './components/IntersectionMap';
 import RiskAlert from './components/RiskAlert';
 import VehicleStatus from './components/VehicleStatus';
-import { ShieldCheck, ShieldAlert, Car, Settings, Activity, Navigation, ZoomIn, ZoomOut } from 'lucide-react';
+import V2XLog from './components/V2XLog';
+import { ShieldCheck, ShieldAlert, Car, Settings, Activity, Navigation, ZoomIn, ZoomOut, Keyboard } from 'lucide-react';
 
 function App() {
   const {
     state, connected, status, agents, collisionPairs,
-    startScenario, grid, toggleBackgroundTraffic, backgroundTrafficActive,
+    startScenario, stopSimulation, restartSimulation,
+    grid, toggleBackgroundTraffic, backgroundTrafficActive,
   } = useWebSocket();
 
   const [zoom, setZoom] = useState(0.7);
   const [minZoom, setMinZoom] = useState(0.15);
   const handleMinZoom = useCallback((mz) => setMinZoom(mz), []);
+
+
+  // Keyboard shortcuts: 1-6 scenarios, S stop, R restart, B background
+  useKeyboardShortcuts({ startScenario, stopSimulation, restartSimulation, toggleBackgroundTraffic });
 
   const trafficLightIntersections = state?.traffic_light_intersections || [];
 
@@ -134,15 +141,24 @@ function App() {
         </div>
       </div>
 
+      {/* ───── BOTTOM-LEFT: V2X Log Panel (frosted glass) ───── */}
+      <div className="fixed bottom-4 left-4 z-20 w-80 pointer-events-auto">
+        <V2XLog />
+      </div>
+
       {/* ───── BOTTOM LEGEND (frosted glass) ───── */}
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
-        <div className="flex gap-5 px-5 py-2.5 rounded-full border border-white/10 text-xs text-neutral-400 font-mono"
+        <div className="flex gap-5 px-5 py-2.5 rounded-full border border-white/10 text-xs text-neutral-400 font-mono items-center"
           style={{ background: 'rgba(10,10,10,0.65)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#00e676] rounded-sm"></div>GO</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#ffeb3b] rounded-sm"></div>YIELD</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#ff9800] rounded-sm"></div>BRAKE</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#f44336] rounded-sm"></div>STOP</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#ff1744] rounded-sm"></div>EMERGENCY</div>
+          <div className="border-l border-white/10 pl-3 flex items-center gap-1" title="Keys: 1-6 scenarios, S stop, R restart, B background">
+            <Keyboard size={12} className="text-neutral-600" />
+            <span className="text-neutral-600 text-[10px]">1-6 S R B</span>
+          </div>
         </div>
       </div>
 

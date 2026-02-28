@@ -11,6 +11,7 @@ from infrastructure_agent import InfrastructureAgent
 from v2x_channel import channel
 from collision_detector import get_collision_pairs
 from background_traffic import bg_traffic, get_grid_info
+from telemetry import telemetry
 
 # Lane offset: distanta de la centrul drumului la centrul benzii
 # In Europa, se circula pe dreapta => offset pozitiv = banda dreapta
@@ -211,6 +212,10 @@ class SimulationManager:
         self._start_time = time.time()
         self.stats["total_vehicles"] += len(self.vehicles)
 
+        # Telemetrie — inregistreaza inceputul scenariului
+        telemetry.record_scenario_start(scenario)
+        telemetry.record_event("scenario_started", {"scenario": scenario, "vehicles": len(self.vehicles)})
+
         self._use_traffic_light = scenario in ("emergency_vehicle", "multi_vehicle_traffic_light")
         if self._use_traffic_light:
             self.infrastructure = InfrastructureAgent()  # reset infrastructure
@@ -223,6 +228,7 @@ class SimulationManager:
 
     def stop(self):
         self.running = False
+        telemetry.record_scenario_end()
         for vehicle in self.vehicles:
             vehicle.stop()
         if self._use_traffic_light:
@@ -253,7 +259,19 @@ class SimulationManager:
             for pair in prev_risks:
                 if pair not in current_risks:
                     self.stats["collisions_prevented"] += 1
+                    telemetry.record_event("collision_prevented", {
+                        "agents": list(pair),
+                    })
             prev_risks = current_risks
+
+            # Telemetrie — inregistreaza evenimentele de risc
+            for p in pairs:
+                if p["risk"] in ("high", "collision"):
+                    telemetry.record_event("risk_detected", {
+                        "level": p["risk"],
+                        "agents": [p["agent1"], p["agent2"]],
+                        "ttc": p["ttc"],
+                    })
             if self._start_time:
                 self.stats["elapsed_time"] = round(time.time() - self._start_time, 1)
 
