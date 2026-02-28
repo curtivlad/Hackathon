@@ -1,0 +1,18 @@
+﻿docker : time="2026-02-28T16:28:34+02:00" level=warning msg="D:\\Hackaton\\Hackathon\\docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential 
+confusion"
+At line:1 char:27
++ cd D:\Hackaton\Hackathon; docker compose down 2>&1 | Out-File -FilePa ...
++                           ~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (time="2026-02-2...tial confusion":String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+ Container v2x-frontend  Stopping
+ Container v2x-frontend  Stopped
+ Container v2x-frontend  Removing
+ Container v2x-frontend  Removed
+ Container v2x-backend  Stopping
+ Container v2x-backend  Stopped
+ Container v2x-backend  Removing
+ Container v2x-backend  Removed
+ Network hackathon_default  Removing
+ Network hackathon_default  Removed
