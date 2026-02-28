@@ -46,7 +46,7 @@ class VehicleAgent:
     def __init__(self, agent_id, start_x, start_y, direction,
                  initial_speed=10.0, intention="straight",
                  is_emergency=False, target_speed=10.0,
-                 waypoints=None, is_drunk=False):
+                 waypoints=None, is_drunk=False, persistent=False):
         self.agent_id = agent_id
         self.x = start_x
         self.y = start_y
@@ -56,6 +56,7 @@ class VehicleAgent:
         self.intention = intention
         self.is_emergency = is_emergency
         self.is_drunk = is_drunk
+        self.persistent = persistent   # never despawn — turn at edges
         if self.is_emergency:
             self.target_speed = MAX_SPEED
         self.decision = "go"
@@ -872,20 +873,88 @@ class VehicleAgent:
                         self.recommended_speed = max(self.recommended_speed, self.target_speed * 0.8)
 
     def _run_loop_waypoint(self):
-        """Intelligent waypoint-following loop for background traffic vehicles."""
-        yield_counter = 0  # anti-deadlock counter
+        """Intelligent waypoint-following loop for background traffic vehicles.
+        Persistent vehicles never despawn — they turn at edges and at random intersections.
+        """
+        from background_traffic import (
+            generate_continuation_waypoints,
+            generate_random_turn_at_intersection,
+            _snap_to_lane,
+            INTERSECTIONS, LANE_OFFSET as BG_LANE_OFFSET,
+        )
 
-        while self._running and self._waypoints:
+        yield_counter = 0
+        TURN_CHANCE = 0.30  # 30% chance to turn at each intersection
+
+        while self._running:
+            # If we ran out of waypoints, generate continuation
+            if not self._waypoints:
+                if self.persistent:
+                    new_wps, new_dir = generate_continuation_waypoints(
+                        self.x, self.y, self.direction
+                    )
+                    if new_wps:
+                        self._waypoints = new_wps
+                        continue
+                    else:
+                        # Fallback: shouldn't happen, but just reverse
+                        self.direction = (self.direction + 180) % 360
+                        time.sleep(UPDATE_INTERVAL)
+                        continue
+                else:
+                    break  # non-persistent: finish
+
             tx, ty = self._waypoints[0]
             dx = tx - self.x
             dy = ty - self.y
             dist = math.sqrt(dx * dx + dy * dy)
 
             if dist < 10.0:
-                # Reached waypoint, advance to next
-                self._waypoints.pop(0)
+                # ── Reached waypoint ──
+                reached_wp = self._waypoints.pop(0)
+
+                # Snap position to the waypoint to prevent lane drift on turns
+                # Check if there's a significant direction change
+                if self._waypoints:
+                    next_tx, next_ty = self._waypoints[0]
+                    ndx = next_tx - reached_wp[0]
+                    ndy = next_ty - reached_wp[1]
+                    if abs(ndx) > 0.1 or abs(ndy) > 0.1:
+                        new_dir = math.degrees(math.atan2(ndx, ndy)) % 360
+                        old_dir = self.direction % 360
+                        angle_diff = abs(new_dir - old_dir)
+                        if angle_diff > 180:
+                            angle_diff = 360 - angle_diff
+                        if angle_diff > 30:
+                            # Significant turn — snap to the waypoint position
+                            self.x, self.y = reached_wp
+                else:
+                    # Last waypoint reached — for persistent, will generate
+                    # continuation on next iteration
+                    pass
+
+                # ── Random turn decision at intersections ──
+                if self._waypoints and not self.is_drunk and not self.is_emergency:
+                    # Check if we're near an intersection (the waypoint we just
+                    # reached was at an intersection)
+                    wp_x, wp_y = reached_wp
+                    at_intersection = any(
+                        abs(wp_x - ix) < 15 and abs(wp_y - iy) < 15
+                        for ix, iy in INTERSECTIONS
+                    )
+                    if at_intersection and random.random() < TURN_CHANCE:
+                        turn_wps, turn_dir = generate_random_turn_at_intersection(
+                            self.x, self.y, self.direction
+                        )
+                        if turn_wps:
+                            # Replace remaining waypoints with turn route
+                            self._waypoints = turn_wps
+                            # Snap position for the turn
+                            self.x, self.y = _snap_to_lane(self.x, self.y, self.direction)
+
                 if not self._waypoints:
-                    break
+                    continue  # will generate continuation at top of loop
+
                 tx, ty = self._waypoints[0]
                 dx = tx - self.x
                 dy = ty - self.y
@@ -929,10 +998,10 @@ class VehicleAgent:
                             self.target_speed * turn_factor
                         )
 
-            # Anti-deadlock: if yielding too long, force go
+            # Anti-deadlock
             if self.decision in ("yield", "stop"):
                 yield_counter += 1
-                if yield_counter > 60:  # ~3 seconds at 0.05s interval
+                if yield_counter > 60:
                     self.decision = "go"
                     self.reason = "anti_deadlock"
                     self.recommended_speed = self.target_speed
@@ -940,7 +1009,7 @@ class VehicleAgent:
             else:
                 yield_counter = 0
 
-            # Adjust speed toward recommended
+            # Adjust speed
             if self.speed < self.recommended_speed:
                 self.speed = min(self.speed + ACCELERATION * UPDATE_INTERVAL, self.recommended_speed)
             elif self.speed > self.recommended_speed:
@@ -955,7 +1024,7 @@ class VehicleAgent:
             channel.publish(self._build_message())
             time.sleep(UPDATE_INTERVAL)
 
-        # Done — remove self
+        # Done — remove self (only for non-persistent)
         self._running = False
         channel.remove_agent(self.agent_id)
 
