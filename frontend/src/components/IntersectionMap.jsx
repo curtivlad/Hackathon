@@ -427,7 +427,7 @@ function drawCollisionZone(ctx, pairs, agents) {
       ctx.fillStyle = pair.risk === "collision" ? "#f44336" : "#ff9800";
       ctx.font = "bold 11px monospace";
       ctx.textAlign = "center";
-      ctx.fillText(`⚠ ${pair.ttc}s`, mx, my - 5);
+      ctx.fillText(`${pair.ttc}s`, mx, my - 5);
     }
   }
 }
