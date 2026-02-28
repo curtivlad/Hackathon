@@ -21,14 +21,38 @@ const SpeechRecognitionAPI = typeof window !== "undefined"
 
 const synthSupported = typeof window !== "undefined" && "speechSynthesis" in window;
 
+/* Track whether TTS has been unlocked by a user gesture (Chrome requirement) */
+let _ttsUnlocked = false;
+
+function _unlockTTS() {
+  if (_ttsUnlocked || !synthSupported) return;
+  const u = new SpeechSynthesisUtterance("");
+  u.volume = 0;
+  window.speechSynthesis.speak(u);
+  window.speechSynthesis.cancel();
+  _ttsUnlocked = true;
+}
+
 function _speak(message, rate = 1.2, volume = 0.7) {
   if (!synthSupported) return;
   try {
-    window.speechSynthesis.cancel();
+    /* Don't cancel — if something is already speaking, queue it instead
+       of killing the current utterance before it's audible */
+    if (window.speechSynthesis.speaking) return;
+
     const utterance = new SpeechSynthesisUtterance(message);
     utterance.rate = rate;
     utterance.volume = volume;
     utterance.pitch = 1.0;
+
+    /* Chrome pauses speechSynthesis after ~15 s; resume workaround */
+    utterance.onstart = () => {
+      const resume = setInterval(() => {
+        if (!window.speechSynthesis.speaking) { clearInterval(resume); return; }
+        window.speechSynthesis.resume();
+      }, 5000);
+    };
+
     window.speechSynthesis.speak(utterance);
   } catch (e) {
     console.warn("[VoiceControl] TTS error:", e);
@@ -45,14 +69,29 @@ export function useVoiceControl({
   collisionPairs = [],
 }) {
   const [voiceEnabled, setVoiceEnabled] = useState(false);
-  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [ttsEnabled, setTtsEnabledRaw] = useState(false);
   const [lastCommand, setLastCommand] = useState("");
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef(null);
   const lastSpokenRef = useRef("");
   const voiceEnabledRef = useRef(false);
   const stoppedManuallyRef = useRef(false);
+  const ttsCooldownRef = useRef(0);
   const supported = !!SpeechRecognitionAPI;
+
+  /* Wrap setTtsEnabled to unlock Chrome TTS on user gesture */
+  const setTtsEnabled = useCallback((valOrFn) => {
+    setTtsEnabledRaw(prev => {
+      const next = typeof valOrFn === "function" ? valOrFn(prev) : valOrFn;
+      if (next && !prev) {
+        _unlockTTS();
+        // Reset so alerts fire immediately after enabling
+        lastSpokenRef.current = "";
+        ttsCooldownRef.current = 0;
+      }
+      return next;
+    });
+  }, []);
 
   // Keep ref in sync
   useEffect(() => { voiceEnabledRef.current = voiceEnabled; }, [voiceEnabled]);
@@ -189,27 +228,27 @@ export function useVoiceControl({
   }, [voiceEnabled, supported, handleCommand]);
 
   // ─── TTS for collision alerts ─────────────────────────────
+
   useEffect(() => {
     if (!ttsEnabled) return;
-    if (!collisionPairs || collisionPairs.length === 0) {
-      lastSpokenRef.current = "";
-      return;
-    }
+    if (!collisionPairs || collisionPairs.length === 0) return;
 
     const collisions = collisionPairs.filter(p => p.risk === "collision" || p.risk === "high");
-    if (collisions.length === 0) {
-      lastSpokenRef.current = "";
-      return;
-    }
+    if (collisions.length === 0) return;
 
     const key = collisions.map(p => `${p.agent1}-${p.agent2}`).sort().join(",");
     if (key === lastSpokenRef.current) return;
+
+    // Cooldown: don't speak more than once every 5 seconds
+    const now = Date.now();
+    if (now - ttsCooldownRef.current < 5000) return;
+    ttsCooldownRef.current = now;
     lastSpokenRef.current = key;
 
     const msg = collisions.length === 1
-      ? `Collision risk between ${collisions[0].agent1} and ${collisions[0].agent2}`
-      : `${collisions.length} collision risks detected`;
-    _speak(msg, 1.0, 0.9);
+      ? `Warning! Collision risk between ${collisions[0].agent1} and ${collisions[0].agent2}`
+      : `Warning! ${collisions.length} collision risks detected`;
+    _speak(msg, 1.0, 1.0);
   }, [collisionPairs, ttsEnabled]);
 
   // Cleanup TTS on unmount
