@@ -239,8 +239,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(
 # ─── API Endpoints cu validare input ────────────────────────────────────────
 
 VALID_SCENARIOS = frozenset([
-    "blind_intersection", "emergency_vehicle", "emergency_vehicle_no_lights",
-    "right_of_way", "multi_vehicle", "multi_vehicle_traffic_light",
+    "emergency_vehicle", "emergency_vehicle_no_lights",
+    "right_of_way", "multi_vehicle_traffic_light",
     "drunk_driver",
 ])
 
@@ -298,22 +298,10 @@ def list_scenarios():
                 "vehicles": 3,
             },
             {
-                "id": "multi_vehicle",
-                "name": "4 Vehicule — Prioritate de Dreapta (Fara Semafor)",
-                "description": "4 vehicule din toate directiile, fara semafor. Negociere prin regula prioritatii de dreapta.",
-                "vehicles": 4,
-            },
-            {
                 "id": "multi_vehicle_traffic_light",
                 "name": "4 Vehicule — Cu Semafor",
                 "description": "4 vehicule din toate directiile cu semafor activ.",
                 "vehicles": 4,
-            },
-            {
-                "id": "blind_intersection",
-                "name": "Intersectie cu vizibilitate redusa",
-                "description": "2 vehicule din directii perpendiculare. B cedeaza lui A.",
-                "vehicles": 2,
             },
             {
                 "id": "emergency_vehicle",
