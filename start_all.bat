@@ -5,13 +5,13 @@ echo ============================================
 echo.
 
 echo [1/2] Starting Backend (FastAPI) in a new window...
-start "V2X Backend" cmd /c "cd /d "%~dp0backend" && echo Starting backend on http://localhost:8000 ... && echo. && python3.12 -u main.py && echo. && echo Backend stopped. && pause"
+start "V2X Backend" cmd /k "cd /d %~dp0backend && echo Starting backend on http://localhost:8000 ... && echo. && python3.12 -u main.py"
 
 echo [2/2] Waiting 3 seconds for backend to start...
-timeout /t 3 /nobreak >nul
+ping -n 4 127.0.0.1 >nul 2>&1
 
 echo [2/2] Starting Frontend (Vite + React) in a new window...
-start "V2X Frontend" cmd /c "cd /d "%~dp0frontend" && echo Installing dependencies... && call npm install && echo. && echo Starting frontend on http://localhost:3000 ... && echo. && call npm run dev && echo. && echo Frontend stopped. && pause"
+start "V2X Frontend" cmd /k "cd /d %~dp0frontend && echo Installing dependencies... && call npm install && echo. && echo Starting frontend on http://localhost:3000 ... && echo. && call npm run dev"
 
 echo.
 echo ============================================
@@ -25,6 +25,5 @@ echo   Close this window anytime - servers will
 echo   keep running in their own windows.
 echo ============================================
 echo.
-timeout /t 5 /nobreak >nul
+ping -n 6 127.0.0.1 >nul 2>&1
 start http://localhost:3000
-

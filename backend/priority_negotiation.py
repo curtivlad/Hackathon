@@ -1,12 +1,29 @@
 """
-priority_negotiation.py
-Logica prin care agentii rezolva conflictele de prioritate la intersectie.
+priority_negotiation.py — Negociere prioritate la intersectie.
 """
 
 import math
 from typing import Dict, Tuple
 from v2x_channel import V2XMessage
-from collision_detector import time_to_intersection, distance, INTERSECTION_CENTER
+from collision_detector import time_to_intersection, distance, INTERSECTION_CENTER, INTERSECTION_RADIUS
+
+STOP_LINE_DISTANCE = INTERSECTION_RADIUS
+
+
+def _dist_to_stop_line(agent: V2XMessage) -> float:
+    """Distanta pe axa de miscare pana la marginea patratului intersectiei."""
+    rad = math.radians(agent.direction)
+    vx = math.sin(rad)
+    vy = math.cos(rad)
+    if abs(vy) >= abs(vx):
+        return max(0.0, abs(agent.y) - STOP_LINE_DISTANCE)
+    else:
+        return max(0.0, abs(agent.x) - STOP_LINE_DISTANCE)
+
+
+def _is_inside_box(agent: V2XMessage) -> bool:
+    """Verifica daca vehiculul e in interiorul patratului intersectiei."""
+    return abs(agent.x) < STOP_LINE_DISTANCE and abs(agent.y) < STOP_LINE_DISTANCE
 
 
 def get_approach_direction(agent: V2XMessage) -> str:
@@ -30,17 +47,11 @@ def is_on_right(my_direction: str, other_direction: str) -> bool:
 
 
 def resolve_priority(agent1: V2XMessage, agent2: V2XMessage) -> Tuple[str, str, str]:
-    """
-    Rezolva conflictul de prioritate intre doi agenti.
-    Returneaza: (decizie_agent1, decizie_agent2, motiv)
-    """
-    # Regula 1: Vehicul de urgenta
     if agent1.is_emergency and not agent2.is_emergency:
         return "go", "stop", "emergency_vehicle"
     if agent2.is_emergency and not agent1.is_emergency:
         return "stop", "go", "emergency_vehicle"
 
-    # Regula 2: Primul sosit
     t1 = time_to_intersection(agent1)
     t2 = time_to_intersection(agent2)
     time_diff = abs(t1 - t2)
@@ -51,7 +62,6 @@ def resolve_priority(agent1: V2XMessage, agent2: V2XMessage) -> Tuple[str, str, 
         else:
             return "yield", "go", "first_arrival"
 
-    # Regula 3: Prioritate la dreapta
     dir1 = get_approach_direction(agent1)
     dir2 = get_approach_direction(agent2)
 
@@ -60,13 +70,11 @@ def resolve_priority(agent1: V2XMessage, agent2: V2XMessage) -> Tuple[str, str, 
     elif is_on_right(dir2, dir1):
         return "go", "yield", "right_of_way"
 
-    # Regula 4: Viteza mai mica cedeaza
     if agent1.speed < agent2.speed:
         return "yield", "go", "lower_speed_yields"
     elif agent2.speed < agent1.speed:
         return "go", "yield", "lower_speed_yields"
 
-    # Tie-break dupa ID
     if agent1.agent_id < agent2.agent_id:
         return "go", "yield", "id_tiebreak"
     else:
@@ -74,20 +82,19 @@ def resolve_priority(agent1: V2XMessage, agent2: V2XMessage) -> Tuple[str, str, 
 
 
 def compute_decisions_for_all(all_agents: Dict[str, V2XMessage]) -> Dict[str, dict]:
-    """Calculeaza decizia optima pentru fiecare agent."""
     from collision_detector import assess_intersection_risk
 
     decisions = {}
     for agent_id in all_agents:
         decisions[agent_id] = {"decision": "go", "reason": "clear", "priority_score": 0}
 
-    agents = list(all_agents.values())
+    agents_list = [a for a in all_agents.values() if a.agent_type == "vehicle"]
     priority_order = {"go": 0, "yield": 1, "brake": 2, "stop": 3}
 
-    for i in range(len(agents)):
-        for j in range(i + 1, len(agents)):
-            a1 = agents[i]
-            a2 = agents[j]
+    for i in range(len(agents_list)):
+        for j in range(i + 1, len(agents_list)):
+            a1 = agents_list[i]
+            a2 = agents_list[j]
             risk = assess_intersection_risk(a1, a2)
 
             if risk in ("high", "collision"):
@@ -102,17 +109,23 @@ def compute_decisions_for_all(all_agents: Dict[str, V2XMessage]) -> Dict[str, di
     return decisions
 
 
-def compute_recommended_speed(agent: V2XMessage, decision: str) -> float:
-    """Calculeaza viteza recomandata pe baza deciziei."""
-    dist_to_center = distance(agent.x, agent.y, *INTERSECTION_CENTER)
+def compute_recommended_speed(agent: V2XMessage, decision: str, target_speed: float = 14.0) -> float:
+    inside = _is_inside_box(agent)
+    dist_to_edge = _dist_to_stop_line(agent)
 
     if decision == "go":
-        return min(agent.speed, 14.0)
-    elif decision == "yield":
-        factor = min(1.0, dist_to_center / 40.0)
-        return agent.speed * factor * 0.6
-    elif decision == "brake":
-        return max(0.0, agent.speed * 0.3)
-    elif decision == "stop":
+        return target_speed
+
+    if inside:
+        return target_speed
+
+    if decision == "stop" or dist_to_edge < 3.0:
         return 0.0
-    return agent.speed
+    elif decision == "yield":
+        factor = min(1.0, dist_to_edge / 40.0)
+        return max(2.0, target_speed * factor * 0.5)
+    elif decision == "brake":
+        factor = min(1.0, dist_to_edge / 40.0)
+        return max(0.0, target_speed * factor * 0.3)
+
+    return target_speed
