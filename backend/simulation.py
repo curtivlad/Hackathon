@@ -32,7 +32,7 @@ class SimulationManager:
         self._clear_vehicles()
         vehicle_a = VehicleAgent(
             agent_id="VH_A",
-            start_x=LANE_OFFSET,
+            start_x=-LANE_OFFSET,
             start_y=120.0,
             direction=180.0,
             initial_speed=11.0,
@@ -42,7 +42,7 @@ class SimulationManager:
         vehicle_b = VehicleAgent(
             agent_id="VH_B",
             start_x=120.0,
-            start_y=-LANE_OFFSET,
+            start_y=LANE_OFFSET,
             direction=270.0,
             initial_speed=10.0,
             target_speed=10.0,
@@ -56,7 +56,7 @@ class SimulationManager:
         ambulance = VehicleAgent(
             agent_id="AMBULANCE",
             start_x=-120.0,
-            start_y=LANE_OFFSET,
+            start_y=-LANE_OFFSET,
             direction=90.0,
             initial_speed=14.0,
             target_speed=14.0,
@@ -65,7 +65,7 @@ class SimulationManager:
         )
         normal_car = VehicleAgent(
             agent_id="VH_C",
-            start_x=-LANE_OFFSET,
+            start_x=LANE_OFFSET,
             start_y=-120.0,
             direction=0.0,
             initial_speed=10.0,
@@ -78,10 +78,10 @@ class SimulationManager:
     def scenario_multi_vehicle(self):
         self._clear_vehicles()
         configs = [
-            ("VH_N",  LANE_OFFSET,  120.0, 180.0, 10.0, "straight"),
-            ("VH_S", -LANE_OFFSET, -120.0,   0.0,  9.0, "straight"),
-            ("VH_E",  120.0, -LANE_OFFSET, 270.0, 11.0, "straight"),
-            ("VH_W", -120.0,  LANE_OFFSET,  90.0,  8.0, "straight"),
+            ("VH_N", -LANE_OFFSET,  120.0, 180.0, 10.0, "straight"),
+            ("VH_S",  LANE_OFFSET, -120.0,   0.0,  9.0, "straight"),
+            ("VH_E",  120.0,  LANE_OFFSET, 270.0, 11.0, "straight"),
+            ("VH_W", -120.0, -LANE_OFFSET,  90.0,  8.0, "straight"),
         ]
         self.vehicles = [
             VehicleAgent(
@@ -108,7 +108,9 @@ class SimulationManager:
         self._start_time = time.time()
         self.stats["total_vehicles"] += len(self.vehicles)
 
-        self.infrastructure.start()
+        self._use_traffic_light = scenario != "blind_intersection"
+        if self._use_traffic_light:
+            self.infrastructure.start()
         for vehicle in self.vehicles:
             vehicle.start()
 
@@ -119,10 +121,12 @@ class SimulationManager:
         self.running = False
         for vehicle in self.vehicles:
             vehicle.stop()
-        self.infrastructure.stop()
+        if getattr(self, '_use_traffic_light', True):
+            self.infrastructure.stop()
         for v in self.vehicles:
             channel.remove_agent(v.agent_id)
-        channel.remove_agent(self.infrastructure.agent_id)
+        if getattr(self, '_use_traffic_light', True):
+            channel.remove_agent(self.infrastructure.agent_id)
 
     def restart(self, scenario: Optional[str] = None):
         sc = scenario or self.active_scenario or "blind_intersection"

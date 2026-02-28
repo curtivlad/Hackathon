@@ -5,9 +5,9 @@ priority_negotiation.py — Negociere prioritate la intersectie.
 import math
 from typing import Dict, Tuple
 from v2x_channel import V2XMessage
-from collision_detector import time_to_intersection, distance, INTERSECTION_CENTER, INTERSECTION_RADIUS
+from collision_detector import time_to_intersection, INTERSECTION_CENTER, INTERSECTION_RADIUS
 
-STOP_LINE_DISTANCE = INTERSECTION_RADIUS
+STOP_LINE_DISTANCE = 35.0
 
 
 def _dist_to_stop_line(agent: V2XMessage) -> float:
@@ -110,8 +110,8 @@ def compute_decisions_for_all(all_agents: Dict[str, V2XMessage]) -> Dict[str, di
 
 
 def compute_recommended_speed(agent: V2XMessage, decision: str, target_speed: float = 14.0) -> float:
-    inside = _is_inside_box(agent)
     dist_to_edge = _dist_to_stop_line(agent)
+    inside = _is_inside_box(agent)
 
     if decision == "go":
         return target_speed
@@ -119,13 +119,16 @@ def compute_recommended_speed(agent: V2XMessage, decision: str, target_speed: fl
     if inside:
         return target_speed
 
-    if decision == "stop" or dist_to_edge < 3.0:
+    if dist_to_edge < 1.0:
         return 0.0
-    elif decision == "yield":
-        factor = min(1.0, dist_to_edge / 40.0)
-        return max(2.0, target_speed * factor * 0.5)
+
+    if decision == "stop":
+        return 0.0
+
+    factor = min(1.0, dist_to_edge / 60.0)
+    if decision == "yield":
+        return max(2.0, target_speed * factor * 0.4)
     elif decision == "brake":
-        factor = min(1.0, dist_to_edge / 40.0)
-        return max(0.0, target_speed * factor * 0.3)
+        return max(0.0, target_speed * factor * 0.2)
 
     return target_speed
