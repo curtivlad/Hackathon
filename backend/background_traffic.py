@@ -14,6 +14,7 @@ import logging
 from typing import List, Tuple, Optional, Dict
 from agents import VehicleAgent
 from v2x_channel import channel
+from intersection_coordinator import IntersectionCoordinator
 #c
 logger = logging.getLogger("background_traffic")
 
@@ -343,6 +344,9 @@ class BackgroundTrafficManager:
         self._thread: Optional[threading.Thread] = None
         self._counter = 0
         self._lock = threading.Lock()
+        # Use IntersectionCoordinator for ALL intersections with green-wave sync
+        self._coordinator = IntersectionCoordinator(INTERSECTIONS, GRID_SPACING)
+        # Keep legacy GridTrafficLight list for backward compat on specific intersections
         self._traffic_lights: List[GridTrafficLight] = [
             GridTrafficLight(x, y) for x, y in TRAFFIC_LIGHT_INTERSECTIONS
         ]
@@ -354,9 +358,12 @@ class BackgroundTrafficManager:
         return self._running
 
     def get_traffic_light_states(self) -> List[dict]:
-        return [tl.to_dict() for tl in self._traffic_lights]
+        return self._coordinator.get_all_states()
 
     def get_traffic_light_for(self, x: float, y: float) -> Optional[GridTrafficLight]:
+        light = self._coordinator.get_light(x, y)
+        if light:
+            return light
         for tl in self._traffic_lights:
             if abs(tl.x - x) < 1.0 and abs(tl.y - y) < 1.0:
                 return tl
@@ -366,6 +373,8 @@ class BackgroundTrafficManager:
         if self._running:
             return
         self._running = True
+        # Start intersection coordinator (green-wave sync across ALL intersections)
+        self._coordinator.start()
         # Spawn all vehicles at once on first start
         if not self._spawned:
             self._spawn_all_vehicles()
@@ -382,6 +391,7 @@ class BackgroundTrafficManager:
 
     def stop(self):
         self._running = False
+        self._coordinator.stop()
         with self._lock:
             for v in self._vehicles.values():
                 v.stop()

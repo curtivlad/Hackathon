@@ -1,20 +1,39 @@
 import React, { useState, useCallback } from 'react';
 import { useWebSocket } from './hooks/useWebSocket';
+import { useVoiceControl } from './hooks/useVoiceControl';
 import IntersectionMap from './components/IntersectionMap';
 import RiskAlert from './components/RiskAlert';
 import VehicleStatus from './components/VehicleStatus';
-import { ShieldCheck, ShieldAlert, Car, Settings, Activity, Navigation, ZoomIn, ZoomOut, Wine } from 'lucide-react';
+import EventLog from './components/EventLog';
+import { ShieldCheck, ShieldAlert, Car, Settings, Activity, Navigation, ZoomIn, ZoomOut, Wine, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 
 function App() {
   const {
     state, connected, status, agents, collisionPairs,
-    startScenario, grid, toggleBackgroundTraffic, backgroundTrafficActive,
+    startScenario, stopSimulation, restartSimulation,
+    grid, toggleBackgroundTraffic, backgroundTrafficActive,
     spawnDrunkDriver,
   } = useWebSocket();
 
   const [zoom, setZoom] = useState(0.7);
   const [minZoom, setMinZoom] = useState(0.15);
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(true);
   const handleMinZoom = useCallback((mz) => setMinZoom(mz), []);
+
+  const {
+    voiceEnabled, setVoiceEnabled,
+    ttsEnabled, setTtsEnabled,
+    lastCommand, listening, supported: voiceSupported,
+  } = useVoiceControl({
+    startScenario,
+    stopSimulation,
+    restartSimulation,
+    spawnDrunkDriver,
+    toggleBackgroundTraffic,
+    setZoom,
+    collisionPairs,
+  });
 
   const trafficLightIntersections = state?.traffic_light_intersections || [];
 
@@ -39,6 +58,7 @@ function App() {
         fullScreen={true}
         externalZoom={zoom}
         onMinZoom={handleMinZoom}
+        onZoomChange={setZoom}
         trafficLightIntersections={trafficLightIntersections}
       />
 
@@ -76,8 +96,11 @@ function App() {
         </div>
       </div>
 
-      <div className="fixed top-24 left-4 z-20 w-80 pointer-events-auto">
-        <div className="rounded-2xl border border-white/10 p-5"
+      <div
+        className="fixed top-24 left-0 z-20 pointer-events-auto flex items-start"
+        style={{ transition: 'transform 0.35s cubic-bezier(0.4,0,0.2,1)', transform: leftOpen ? 'translateX(0)' : 'translateX(calc(-100% + 32px))' }}
+      >
+        <div className="w-80 ml-4 rounded-2xl border border-white/10 p-5"
           style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}>
 
           <div className="flex items-center justify-between mb-4">
@@ -134,10 +157,27 @@ function App() {
             <ScenarioBtn label="Drunk Driver" onClick={() => startScenario('drunk_driver')} hoverColor="pink" />
           </div>
         </div>
+        <button
+          onClick={() => setLeftOpen(prev => !prev)}
+          className="mt-2 p-1.5 rounded-r-lg border border-l-0 border-white/10 text-neutral-400 hover:text-white hover:bg-white/10 transition"
+          style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(16px)' }}
+        >
+          {leftOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+        </button>
       </div>
 
-      <div className="fixed top-24 right-4 z-20 w-80 max-h-[calc(100vh-7rem)] pointer-events-auto">
-        <div className="rounded-2xl border border-white/10 p-5 max-h-[calc(100vh-7rem)] overflow-y-auto"
+      <div
+        className="fixed top-24 right-0 z-20 max-h-[calc(100vh-7rem)] pointer-events-auto flex items-start"
+        style={{ transition: 'transform 0.35s cubic-bezier(0.4,0,0.2,1)', transform: rightOpen ? 'translateX(0)' : 'translateX(calc(100% - 32px))' }}
+      >
+        <button
+          onClick={() => setRightOpen(prev => !prev)}
+          className="mt-2 p-1.5 rounded-l-lg border border-r-0 border-white/10 text-neutral-400 hover:text-white hover:bg-white/10 transition"
+          style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(16px)' }}
+        >
+          {rightOpen ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+        </button>
+        <div className="w-80 mr-4 rounded-2xl border border-white/10 p-5 max-h-[calc(100vh-7rem)] overflow-y-auto"
           style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}>
           <VehicleStatus agents={agents} infrastructure={state?.infrastructure || {}} />
         </div>
@@ -148,15 +188,58 @@ function App() {
           style={{ background: 'rgba(10,10,10,0.65)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#00e676] rounded-sm"></div>GO</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#ffeb3b] rounded-sm"></div>YIELD</div>
+          <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#ff9800] rounded-sm"></div>BRAKE</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#f44336] rounded-sm"></div>STOP</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#ff1744] rounded-sm"></div>EMERGENCY</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#FF69B4] rounded-sm"></div>DRUNK</div>
         </div>
       </div>
 
+      {/* Event Log Panel */}
+      <div className="fixed bottom-14 left-4 z-20 w-80 pointer-events-auto">
+        <EventLog collisionPairs={collisionPairs} agents={agents} />
+      </div>
+
       <div className="fixed bottom-4 right-4 z-20 pointer-events-auto">
         <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl border border-white/10"
           style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
+
+          {/* Voice Controls */}
+          {voiceSupported && (
+            <>
+              <button
+                onClick={() => setVoiceEnabled(v => !v)}
+                className={`p-1.5 rounded-lg border transition-all ${
+                  voiceEnabled
+                    ? listening
+                      ? 'bg-green-900/40 border-green-500/60 text-green-400 animate-pulse'
+                      : 'bg-yellow-900/40 border-yellow-500/60 text-yellow-400'
+                    : 'bg-transparent border-neutral-700 text-neutral-500 hover:text-neutral-300'
+                }`}
+                title={voiceEnabled ? (listening ? 'Listening... say a command' : 'Voice ON — connecting mic') : 'Voice Commands OFF — click to enable'}
+              >
+                {voiceEnabled ? <Mic size={14} /> : <MicOff size={14} />}
+              </button>
+              <button
+                onClick={() => setTtsEnabled(v => !v)}
+                className={`p-1.5 rounded-lg border transition-all ${
+                  ttsEnabled
+                    ? 'bg-blue-900/40 border-blue-500/60 text-blue-400'
+                    : 'bg-transparent border-neutral-700 text-neutral-500 hover:text-neutral-300'
+                }`}
+                title={ttsEnabled ? 'TTS Alerts ON' : 'TTS Alerts OFF'}
+              >
+                {ttsEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
+              </button>
+              {lastCommand && voiceEnabled && (
+                <span className="text-[10px] text-green-400/70 font-mono max-w-24 truncate" title={lastCommand}>
+                  "{lastCommand}"
+                </span>
+              )}
+              <div className="w-px h-5 bg-neutral-700"></div>
+            </>
+          )}
+
           <ZoomOut size={14} className="text-neutral-500 shrink-0" />
           <input
             type="range"
@@ -185,12 +268,14 @@ function ScenarioBtn({ label, onClick, hoverColor = "green" }) {
     yellow: "hover:bg-yellow-900/30 hover:border-yellow-500/50",
     red: "hover:bg-red-900/30 hover:border-red-500/50",
     orange: "hover:bg-orange-900/30 hover:border-orange-500/50",
+    pink: "hover:bg-pink-900/30 hover:border-pink-500/50",
   };
   const iconColorMap = {
     green: "group-hover:text-[#00e676]",
     yellow: "group-hover:text-yellow-400",
     red: "group-hover:text-red-400",
     orange: "group-hover:text-orange-400",
+    pink: "group-hover:text-pink-400",
   };
   return (
     <button

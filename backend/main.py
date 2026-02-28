@@ -413,13 +413,29 @@ def get_telemetry_report():
     return telemetry.generate_report()
 
 
+@app.post("/telemetry/export", dependencies=[Depends(verify_token), Depends(rate_limit)])
+def export_telemetry():
+    """Exporta raportul curent intr-un fisier JSON persistent."""
+    from telemetry import telemetry
+    filepath = telemetry.export_to_file()
+    return {"status": "exported", "filepath": filepath}
+
+
+@app.get("/telemetry/history", dependencies=[Depends(verify_token)])
+def get_telemetry_history(last_n: int = 10):
+    """Returneaza ultimele N rapoarte exportate."""
+    from telemetry import telemetry
+    last_n = max(1, min(last_n, 50))
+    return {"reports": telemetry.get_history(last_n)}
+
+
 # ─── Security monitoring endpoint ──────────────────────────────────────────
 
 @app.get("/security/stats", dependencies=[Depends(verify_token)])
 def security_stats():
     """Endpoint de monitoring securitate — arata mesaje respinse, agenti inactivi, etc."""
     from llm_brain import get_circuit_breaker_stats
-    return {
+    result = {
         "v2x_channel": channel.get_security_stats(),
         "ws_connections": len(active_connections),
         "ws_max_connections": MAX_WS_CONNECTIONS,
@@ -427,6 +443,12 @@ def security_stats():
         "rest_rate_limit_per_min": REST_RATE_LIMIT,
         "llm_circuit_breaker": get_circuit_breaker_stats(),
     }
+    # Add intersection coordinator stats if available
+    try:
+        result["intersection_coordinator"] = bg_traffic._coordinator.get_stats()
+    except Exception:
+        pass
+    return result
 
 
 
