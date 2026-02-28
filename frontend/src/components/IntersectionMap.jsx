@@ -1,91 +1,209 @@
 import React, { useRef, useEffect } from "react";
 
-const CANVAS_SIZE = 500;
-const WORLD_SIZE = 280;   // metri vizibili pe fiecare directie
+const CANVAS_SIZE = 520;
+const WORLD_SIZE = 280;
 const SCALE = CANVAS_SIZE / (WORLD_SIZE * 2);
 const CENTER = CANVAS_SIZE / 2;
+const ROAD_W = 60 * SCALE;
+const HALF_ROAD = ROAD_W / 2;
 
-// Culori
 const COLORS = {
   road: "#2a2a2a",
   roadLine: "#555",
+  laneDivider: "#444",
   sidewalk: "#1a1a2e",
+  crosswalk: "#3a3a3a",
   vehicle_go: "#00e676",
   vehicle_yield: "#ffeb3b",
   vehicle_brake: "#ff9800",
   vehicle_stop: "#f44336",
   emergency: "#ff1744",
-  infrastructure: "#2196f3",
   risk_high: "rgba(255, 152, 0, 0.25)",
   risk_collision: "rgba(244, 67, 54, 0.35)",
   text: "#ffffff",
-  grid: "#333",
 };
 
 function worldToCanvas(x, y) {
   return {
     cx: CENTER + x * SCALE,
-    cy: CENTER - y * SCALE,   // Y inversat (sus = pozitiv)
+    cy: CENTER - y * SCALE,
   };
 }
 
 function drawRoad(ctx) {
-  // Fundal
   ctx.fillStyle = COLORS.sidewalk;
   ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
 
-  const roadW = 60 * SCALE;
-  const half = roadW / 2;
-
-  // Drum orizontal
   ctx.fillStyle = COLORS.road;
-  ctx.fillRect(0, CENTER - half, CANVAS_SIZE, roadW);
+  ctx.fillRect(0, CENTER - HALF_ROAD, CANVAS_SIZE, ROAD_W);
+  ctx.fillRect(CENTER - HALF_ROAD, 0, ROAD_W, CANVAS_SIZE);
 
-  // Drum vertical
-  ctx.fillRect(CENTER - half, 0, roadW, CANVAS_SIZE);
+  // Crosswalk strips at intersection edges
+  ctx.fillStyle = COLORS.crosswalk;
+  const stripW = 3, stripGap = 5, numStrips = Math.floor(ROAD_W / (stripW + stripGap));
+  for (let i = 0; i < numStrips; i++) {
+    const offset = CENTER - HALF_ROAD + i * (stripW + stripGap) + 2;
+    ctx.fillRect(offset, CENTER - HALF_ROAD - 6, stripW, 6);
+    ctx.fillRect(offset, CENTER + HALF_ROAD, stripW, 6);
+    ctx.fillRect(CENTER - HALF_ROAD - 6, offset, 6, stripW);
+    ctx.fillRect(CENTER + HALF_ROAD, offset, 6, stripW);
+  }
 
-  // Linii mediane
-  ctx.setLineDash([20, 15]);
-  ctx.strokeStyle = COLORS.roadLine;
-  ctx.lineWidth = 2;
-
+  // Stop lines — full width across each road approach
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 3;
+  // Top approach
   ctx.beginPath();
-  ctx.moveTo(0, CENTER);
-  ctx.lineTo(CANVAS_SIZE, CENTER);
+  ctx.moveTo(CENTER - HALF_ROAD, CENTER - HALF_ROAD - 8);
+  ctx.lineTo(CENTER + HALF_ROAD, CENTER - HALF_ROAD - 8);
+  ctx.stroke();
+  // Bottom approach
+  ctx.beginPath();
+  ctx.moveTo(CENTER - HALF_ROAD, CENTER + HALF_ROAD + 8);
+  ctx.lineTo(CENTER + HALF_ROAD, CENTER + HALF_ROAD + 8);
+  ctx.stroke();
+  // Right approach
+  ctx.beginPath();
+  ctx.moveTo(CENTER + HALF_ROAD + 8, CENTER - HALF_ROAD);
+  ctx.lineTo(CENTER + HALF_ROAD + 8, CENTER + HALF_ROAD);
+  ctx.stroke();
+  // Left approach
+  ctx.beginPath();
+  ctx.moveTo(CENTER - HALF_ROAD - 8, CENTER - HALF_ROAD);
+  ctx.lineTo(CENTER - HALF_ROAD - 8, CENTER + HALF_ROAD);
   ctx.stroke();
 
+  // Lane dividers (dashed center lines on each road segment, outside intersection)
+  ctx.setLineDash([12, 10]);
+  ctx.strokeStyle = "#ffeb3b";
+  ctx.lineWidth = 2;
+
+  // Vertical road — top segment
   ctx.beginPath();
   ctx.moveTo(CENTER, 0);
+  ctx.lineTo(CENTER, CENTER - HALF_ROAD);
+  ctx.stroke();
+
+  // Vertical road — bottom segment
+  ctx.beginPath();
+  ctx.moveTo(CENTER, CENTER + HALF_ROAD);
   ctx.lineTo(CENTER, CANVAS_SIZE);
   ctx.stroke();
 
+  // Horizontal road — left segment
+  ctx.beginPath();
+  ctx.moveTo(0, CENTER);
+  ctx.lineTo(CENTER - HALF_ROAD, CENTER);
+  ctx.stroke();
+
+  // Horizontal road — right segment
+  ctx.beginPath();
+  ctx.moveTo(CENTER + HALF_ROAD, CENTER);
+  ctx.lineTo(CANVAS_SIZE, CENTER);
+  ctx.stroke();
+
   ctx.setLineDash([]);
+
+  // Road edge lines (solid white)
+  ctx.strokeStyle = "#666";
+  ctx.lineWidth = 1;
+
+  // Vertical road edges
+  ctx.beginPath();
+  ctx.moveTo(CENTER - HALF_ROAD, 0);
+  ctx.lineTo(CENTER - HALF_ROAD, CENTER - HALF_ROAD);
+  ctx.moveTo(CENTER + HALF_ROAD, 0);
+  ctx.lineTo(CENTER + HALF_ROAD, CENTER - HALF_ROAD);
+  ctx.moveTo(CENTER - HALF_ROAD, CENTER + HALF_ROAD);
+  ctx.lineTo(CENTER - HALF_ROAD, CANVAS_SIZE);
+  ctx.moveTo(CENTER + HALF_ROAD, CENTER + HALF_ROAD);
+  ctx.lineTo(CENTER + HALF_ROAD, CANVAS_SIZE);
+  ctx.stroke();
+
+  // Horizontal road edges
+  ctx.beginPath();
+  ctx.moveTo(0, CENTER - HALF_ROAD);
+  ctx.lineTo(CENTER - HALF_ROAD, CENTER - HALF_ROAD);
+  ctx.moveTo(0, CENTER + HALF_ROAD);
+  ctx.lineTo(CENTER + HALF_ROAD, CENTER + HALF_ROAD);
+  ctx.moveTo(CENTER + HALF_ROAD, CENTER - HALF_ROAD);
+  ctx.lineTo(CANVAS_SIZE, CENTER - HALF_ROAD);
+  ctx.moveTo(CENTER + HALF_ROAD, CENTER + HALF_ROAD);
+  ctx.lineTo(CANVAS_SIZE, CENTER + HALF_ROAD);
+  ctx.stroke();
+
+  // Direction arrows on lanes
+  ctx.fillStyle = "#555";
+  ctx.font = "14px monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  const arrowOffset = HALF_ROAD / 2;
+  // Vertical road: right lane = southbound ↓, left lane = northbound ↑
+  ctx.fillText("↓", CENTER - arrowOffset, CENTER - HALF_ROAD - 20);
+  ctx.fillText("↑", CENTER + arrowOffset, CENTER - HALF_ROAD - 20);
+  ctx.fillText("↓", CENTER - arrowOffset, CENTER + HALF_ROAD + 20);
+  ctx.fillText("↑", CENTER + arrowOffset, CENTER + HALF_ROAD + 20);
+
+  // Horizontal road: top lane = westbound ←, bottom lane = eastbound →
+  ctx.fillText("←", CENTER + HALF_ROAD + 20, CENTER - arrowOffset);
+  ctx.fillText("→", CENTER + HALF_ROAD + 20, CENTER + arrowOffset);
+  ctx.fillText("←", CENTER - HALF_ROAD - 20, CENTER - arrowOffset);
+  ctx.fillText("→", CENTER - HALF_ROAD - 20, CENTER + arrowOffset);
 }
 
-function drawTrafficLight(ctx, phase) {
-  const size = 18;
-  const x = CENTER + 38;
-  const y = CENTER - 38;
+function drawTrafficLights(ctx, phase) {
+  const r = 6;
+  const pad = 4;
+  const boxW = r * 2 + pad * 2;
+  const boxH = r * 2 * 2 + pad * 3;
+  const offset = HALF_ROAD + 8;
 
-  ctx.fillStyle = "#222";
-  ctx.fillRect(x - 2, y - 2, size + 4, size * 2 + 4 + 6);
 
-  // NS light
-  ctx.fillStyle = phase === "NS_GREEN" ? "#00e676" : "#f44336";
-  ctx.beginPath();
-  ctx.arc(x + size / 2, y + size / 2, size / 2 - 1, 0, Math.PI * 2);
-  ctx.fill();
+  const corners = [
+    // Top-right corner — controls NS (south-bound lane)
+    { x: CENTER + offset, y: CENTER - offset - boxH, green: phase === "NS_GREEN" },
+    // Bottom-left corner — controls NS (north-bound lane)
+    { x: CENTER - offset - boxW, y: CENTER + offset, green: phase === "NS_GREEN" },
+    // Top-left corner — controls EW (east-bound lane)
+    { x: CENTER - offset - boxW, y: CENTER - offset - boxH, green: phase === "EW_GREEN" },
+    // Bottom-right corner — controls EW (west-bound lane)
+    { x: CENTER + offset, y: CENTER + offset, green: phase === "EW_GREEN" },
+  ];
 
-  // EW light
-  ctx.fillStyle = phase === "EW_GREEN" ? "#00e676" : "#f44336";
-  ctx.beginPath();
-  ctx.arc(x + size / 2, y + size + 6 + size / 2, size / 2 - 1, 0, Math.PI * 2);
-  ctx.fill();
+  corners.forEach(({ x, y, green }) => {
+    ctx.fillStyle = "#111";
+    ctx.strokeStyle = "#444";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(x, y, boxW, boxH, 4);
+    ctx.fill();
+    ctx.stroke();
 
-  ctx.fillStyle = "#aaa";
-  ctx.font = "9px monospace";
-  ctx.fillText("NS", x + size + 3, y + size / 2 + 4);
-  ctx.fillText("EW", x + size + 3, y + size + 6 + size / 2 + 4);
+    // Green light
+    ctx.fillStyle = green ? "#00e676" : "#1a3a1a";
+    ctx.beginPath();
+    ctx.arc(x + boxW / 2, y + pad + r, r, 0, Math.PI * 2);
+    ctx.fill();
+    if (green) {
+      ctx.shadowColor = "#00e676";
+      ctx.shadowBlur = 8;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // Red light
+    ctx.fillStyle = green ? "#3a1a1a" : "#f44336";
+    ctx.beginPath();
+    ctx.arc(x + boxW / 2, y + pad * 2 + r * 3, r, 0, Math.PI * 2);
+    ctx.fill();
+    if (!green) {
+      ctx.shadowColor = "#f44336";
+      ctx.shadowBlur = 8;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+  });
 }
 
 function drawVehicle(ctx, agent) {
@@ -99,7 +217,6 @@ function drawVehicle(ctx, agent) {
   else if (decision === "brake") color = COLORS.vehicle_brake;
   else color = COLORS.vehicle_stop;
 
-  // Puls (glow)
   if (agent.risk_level === "collision") {
     ctx.shadowColor = COLORS.emergency;
     ctx.shadowBlur = 20;
@@ -108,8 +225,7 @@ function drawVehicle(ctx, agent) {
     ctx.shadowBlur = 12;
   }
 
-  // Corpul vehiculului
-  const w = 12, h = 20;
+  const w = 10, h = 18;
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate((agent.direction * Math.PI) / 180);
@@ -119,28 +235,30 @@ function drawVehicle(ctx, agent) {
   ctx.roundRect(-w / 2, -h / 2, w, h, 3);
   ctx.fill();
 
-  // Sageata de directie
-  ctx.fillStyle = "rgba(0,0,0,0.5)";
+  // Windshield
+  ctx.fillStyle = "rgba(255,255,255,0.15)";
+  ctx.fillRect(-w / 2 + 2, -h / 2 + 2, w - 4, 5);
+
+  // Direction arrow
+  ctx.fillStyle = "rgba(0,0,0,0.4)";
   ctx.beginPath();
-  ctx.moveTo(0, -h / 2 - 6);
-  ctx.lineTo(-4, -h / 2);
-  ctx.lineTo(4, -h / 2);
+  ctx.moveTo(0, -h / 2 - 5);
+  ctx.lineTo(-3, -h / 2);
+  ctx.lineTo(3, -h / 2);
   ctx.closePath();
   ctx.fill();
 
   ctx.restore();
   ctx.shadowBlur = 0;
 
-  // Label
   ctx.fillStyle = COLORS.text;
-  ctx.font = "bold 10px monospace";
+  ctx.font = "bold 9px monospace";
   ctx.textAlign = "center";
-  ctx.fillText(agent.agent_id, cx, cy + 22);
+  ctx.fillText(agent.agent_id, cx, cy + 18);
 
-  // Viteza
   ctx.fillStyle = "#aaa";
-  ctx.font = "9px monospace";
-  ctx.fillText(`${(agent.speed * 3.6).toFixed(0)} km/h`, cx, cy + 33);
+  ctx.font = "8px monospace";
+  ctx.fillText(`${(agent.speed * 3.6).toFixed(0)} km/h`, cx, cy + 28);
 }
 
 function drawCollisionZone(ctx, pairs, agents) {
@@ -152,7 +270,6 @@ function drawCollisionZone(ctx, pairs, agents) {
     const p1 = worldToCanvas(a1.x, a1.y);
     const p2 = worldToCanvas(a2.x, a2.y);
 
-    // Linie intre cei doi
     ctx.strokeStyle = pair.risk === "collision" ? "#f44336" : "#ff9800";
     ctx.lineWidth = 2;
     ctx.setLineDash([8, 6]);
@@ -162,7 +279,6 @@ function drawCollisionZone(ctx, pairs, agents) {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Zona de pericol la mijloc
     const mx = (p1.cx + p2.cx) / 2;
     const my = (p1.cy + p2.cy) / 2;
     const radius = 28;
@@ -175,7 +291,6 @@ function drawCollisionZone(ctx, pairs, agents) {
     ctx.arc(mx, my, radius, 0, Math.PI * 2);
     ctx.fill();
 
-    // TTC label
     if (pair.ttc < 999) {
       ctx.fillStyle = pair.risk === "collision" ? "#f44336" : "#ff9800";
       ctx.font = "bold 11px monospace";
@@ -197,21 +312,21 @@ export default function IntersectionMap({ agents = {}, infrastructure = {}, coll
     drawRoad(ctx);
     drawCollisionZone(ctx, collisionPairs, agents);
 
-    // Deseneaza vehiculele
     for (const agent of Object.values(agents)) {
       if (agent.agent_type === "vehicle") {
         drawVehicle(ctx, agent);
       }
     }
 
-    // Semafor
     if (infrastructure.phase) {
-      drawTrafficLight(ctx, infrastructure.phase);
+      drawTrafficLights(ctx, infrastructure.phase);
     }
 
-    // Legenda
-    ctx.fillStyle = "rgba(0,0,0,0.6)";
-    ctx.fillRect(8, 8, 120, 75);
+    // Legend
+    ctx.fillStyle = "rgba(0,0,0,0.7)";
+    ctx.beginPath();
+    ctx.roundRect(8, 8, 110, 75, 6);
+    ctx.fill();
     ctx.font = "9px monospace";
     const legend = [
       [COLORS.vehicle_go, "GO"],
