@@ -444,7 +444,7 @@ class VehicleAgent:
         self.reason = base_reason
 
         # ADAPTARE: daca am cedat prea mult timp si nu mai e risc, pleaca
-        if self.decision in ("yield", "stop") and self._fallback_consecutive > 20:
+        if self.decision in ("yield", "stop") and self._fallback_consecutive > 40:
             # Verifica daca e safe sa plec
             nearby = self._get_nearby_vehicles_info()
             all_safe = True
@@ -656,13 +656,16 @@ class VehicleAgent:
             if d > 150:
                 continue
             # Skip same-road opposite direction (they won't collide)
+            # Also verify they're on the same road (close perpendicular coord)
             my_axis = self._get_movement_axis()
             o_rad = math.radians(other_msg.direction)
             o_axis = "NS" if abs(math.cos(o_rad)) >= abs(math.sin(o_rad)) else "EW"
             if my_axis == o_axis:
                 angle_diff = abs(self.direction - other_msg.direction) % 360
                 if abs(angle_diff - 180) < 15:
-                    continue  # opposite directions on same road
+                    perp_dist = abs(self.x - other_msg.x) if my_axis == "NS" else abs(self.y - other_msg.y)
+                    if perp_dist < 25.0:
+                        continue  # genuinely opposite directions on same road
             ttc = compute_ttc(my_msg, other_msg)
             if ttc < 3.0:
                 self.risk_level = "collision"
@@ -878,7 +881,7 @@ class VehicleAgent:
             dy = ty - self.y
             dist = math.sqrt(dx * dx + dy * dy)
 
-            if dist < 5.0:
+            if dist < 10.0:
                 # Reached waypoint, advance to next
                 self._waypoints.pop(0)
                 if not self._waypoints:
@@ -892,7 +895,6 @@ class VehicleAgent:
             if dist > 0.1:
                 base_dir = math.degrees(math.atan2(dx, dy)) % 360
                 if self.is_drunk:
-                    # Drunk swerving — sinusoidal oscillation + random jitter
                     t = time.time()
                     swerve = DRUNK_SWERVE_MAX * math.sin(2 * math.pi * t / DRUNK_SWERVE_PERIOD)
                     swerve += random.uniform(-4, 4)
@@ -902,15 +904,35 @@ class VehicleAgent:
 
             # ── Intelligent decision making ──
             if self.is_drunk:
-                # Drunk driver: erratic decisions instead of normal logic
                 self._bg_drunk_erratic_decision()
             else:
                 self._bg_compute_risk_and_decision()
 
+            # ── Turn speed reduction: slow down when approaching a corner ──
+            if len(self._waypoints) >= 2 and not self.is_drunk:
+                next_tx, next_ty = self._waypoints[0]
+                after_tx, after_ty = self._waypoints[1]
+                seg1_dx = next_tx - self.x
+                seg1_dy = next_ty - self.y
+                seg2_dx = after_tx - next_tx
+                seg2_dy = after_ty - next_ty
+                len1 = math.sqrt(seg1_dx ** 2 + seg1_dy ** 2)
+                len2 = math.sqrt(seg2_dx ** 2 + seg2_dy ** 2)
+                if len1 > 0.1 and len2 > 0.1:
+                    cos_angle = (seg1_dx * seg2_dx + seg1_dy * seg2_dy) / (len1 * len2)
+                    cos_angle = max(-1.0, min(1.0, cos_angle))
+                    turn_angle = math.degrees(math.acos(cos_angle))
+                    if turn_angle > 30 and dist < 50:
+                        turn_factor = max(0.35, 1.0 - turn_angle / 120.0)
+                        self.recommended_speed = min(
+                            self.recommended_speed,
+                            self.target_speed * turn_factor
+                        )
+
             # Anti-deadlock: if yielding too long, force go
             if self.decision in ("yield", "stop"):
                 yield_counter += 1
-                if yield_counter > 30:  # ~3 seconds of yielding
+                if yield_counter > 60:  # ~3 seconds at 0.05s interval
                     self.decision = "go"
                     self.reason = "anti_deadlock"
                     self.recommended_speed = self.target_speed

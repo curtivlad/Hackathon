@@ -406,7 +406,7 @@ MEMORY & ADAPTATION:
 You MUST respond ONLY with a valid JSON object (no markdown, no explanation):
 {
   "action": "go" | "yield" | "brake" | "stop",
-  "speed": <float 0.0 to 14.0>,
+  "speed": <float 0.0 to 25.0>,
   "reason": "<short reason string, max 30 chars>"
 }
 """
@@ -585,7 +585,7 @@ class LLMBrain:
                 action = "go"
 
             spd = float(decision.get("speed", speed))
-            spd = max(0.0, min(14.0, spd))
+            spd = max(0.0, min(25.0, spd))
 
             reason = str(decision.get("reason", "llm_decision"))[:50]
 

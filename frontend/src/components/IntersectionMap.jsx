@@ -37,29 +37,23 @@ function drawCityGrid(ctx, camera, grid) {
   const { intersections, grid_spacing } = grid;
   if (!intersections || intersections.length === 0) return;
 
-  // Small stub of road beyond outermost intersections so vehicles don't spawn from nothing
-  const margin = grid_spacing * 0.5;
-
   ctx.fillStyle = COLORS.background;
   ctx.fillRect(0, 0, camera.canvasW, camera.canvasH);
 
   const xCoords = [...new Set(intersections.map(i => i.x))].sort((a, b) => a - b);
   const yCoords = [...new Set(intersections.map(i => i.y))].sort((a, b) => a - b);
 
-  const gridMinX = Math.min(...xCoords);
-  const gridMaxX = Math.max(...xCoords);
-  const gridMinY = Math.min(...yCoords);
-  const gridMaxY = Math.max(...yCoords);
+  const minX = Math.min(...xCoords);
+  const maxX = Math.max(...xCoords);
+  const minY = Math.min(...yCoords);
+  const maxY = Math.max(...yCoords);
 
-  // Draw vertical roads (columns) — clipped to grid bounds
+  // ── Draw vertical roads (columns) — clipped to grid bounds (no stubs) ──
   for (const ix of xCoords) {
-    const minY = gridMinY - margin;
-    const maxY = gridMaxY + margin;
-
     const left = worldToScreen(ix - HALF_ROAD, 0, camera);
     const right = worldToScreen(ix + HALF_ROAD, 0, camera);
-    const top = worldToScreen(0, maxY, camera);
-    const bot = worldToScreen(0, minY, camera);
+    const top = worldToScreen(0, maxY + HALF_ROAD, camera);
+    const bot = worldToScreen(0, minY - HALF_ROAD, camera);
 
     ctx.fillStyle = COLORS.road;
     ctx.fillRect(left.sx, top.sy, right.sx - left.sx, bot.sy - top.sy);
@@ -81,15 +75,12 @@ function drawCityGrid(ctx, camera, grid) {
     ctx.setLineDash([]);
   }
 
-  // Draw horizontal roads (rows) — clipped to grid bounds
+  // ── Draw horizontal roads (rows) — clipped to grid bounds (no stubs) ──
   for (const iy of yCoords) {
-    const minX = gridMinX - margin;
-    const maxX = gridMaxX + margin;
-
     const top = worldToScreen(0, iy + HALF_ROAD, camera);
     const bot = worldToScreen(0, iy - HALF_ROAD, camera);
-    const left = worldToScreen(minX, 0, camera);
-    const right = worldToScreen(maxX, 0, camera);
+    const left = worldToScreen(minX - HALF_ROAD, 0, camera);
+    const right = worldToScreen(maxX + HALF_ROAD, 0, camera);
 
     ctx.fillStyle = COLORS.road;
     ctx.fillRect(left.sx, top.sy, right.sx - left.sx, bot.sy - top.sy);
@@ -109,6 +100,17 @@ function drawCityGrid(ctx, camera, grid) {
     ctx.moveTo(left.sx, center.sy); ctx.lineTo(right.sx, center.sy);
     ctx.stroke();
     ctx.setLineDash([]);
+  }
+
+  // ── Fill corner patches to close the perimeter square ──
+  ctx.fillStyle = COLORS.road;
+  for (const c of [
+    { x: minX, y: maxY }, { x: maxX, y: maxY },
+    { x: maxX, y: minY }, { x: minX, y: minY },
+  ]) {
+    const tl = worldToScreen(c.x - HALF_ROAD, c.y + HALF_ROAD, camera);
+    const br = worldToScreen(c.x + HALF_ROAD, c.y - HALF_ROAD, camera);
+    ctx.fillRect(tl.sx, tl.sy, br.sx - tl.sx, br.sy - tl.sy);
   }
 
   if (camera.zoom > 0.3) {

@@ -1,6 +1,7 @@
 """
 background_traffic.py — Manager pentru trafic ambient pe grila de intersectii.
-Genereaza masini random cu trasee predefinite (waypoints) prin oras.
+Genereaza masini cu trasee variate (drept, viraj stanga/dreapta) prin oras.
+Drumurile formeaza un patrat inchis — toate capetele sunt unite, nimic nu duce in gol.
 Include semafoare pe unele intersectii si masini de urgenta ocazionale.
 """
 
@@ -30,39 +31,41 @@ for row in range(GRID_ROWS):
         iy = _half_h - row * GRID_SPACING
         INTERSECTIONS.append((ix, iy))
 
-DEMO_INTERSECTION = min(INTERSECTIONS, key=lambda p: p[0]**2 + p[1]**2)
+DEMO_INTERSECTION = min(INTERSECTIONS, key=lambda p: p[0] ** 2 + p[1] ** 2)
 
 LANE_OFFSET = 10.0
-SPAWN_MARGIN = 80.0
 
-# Background traffic settings
-MAX_BG_VEHICLES = 18
-SPAWN_INTERVAL = 2.5
+# Background traffic settings — dense traffic ecosystem
+MAX_BG_VEHICLES = 30
+SPAWN_INTERVAL = 1.2
 BG_SPEED_MIN = 12.0
 BG_SPEED_MAX = 20.0
-EMERGENCY_CHANCE = 0.08  # 8% chance a BG vehicle is an ambulance
-MIN_SPAWN_DISTANCE = 60.0  # minimum distance between vehicles on same lane
+EMERGENCY_CHANCE = 0.08
+MIN_SPAWN_DISTANCE = 45.0
 
 # ──────────────────────── Traffic Lights on Grid ────────────────────────
-# Traffic lights at the four corners of the 5x5 grid.
-TRAFFIC_LIGHT_PHASE_DURATION = 12.0  # seconds per phase
+TRAFFIC_LIGHT_PHASE_DURATION = 12.0
 
 TRAFFIC_LIGHT_INTERSECTIONS = [
-    (-200.0,  200.0),   # inner 3x3 top-left
-    ( 200.0,  200.0),   # inner 3x3 top-right
-    (-200.0, -200.0),   # inner 3x3 bottom-left
-    ( 200.0, -200.0),   # inner 3x3 bottom-right
+    (-200.0, 200.0),
+    (200.0, 200.0),
+    (-200.0, -200.0),
+    (200.0, -200.0),
 ]
+
+_ALL_COL_X = sorted(set(x for x, y in INTERSECTIONS))
+_ALL_ROW_Y = sorted(set(y for x, y in INTERSECTIONS))
+
+_MIN_X, _MAX_X = min(_ALL_COL_X), max(_ALL_COL_X)
+_MIN_Y, _MAX_Y = min(_ALL_ROW_Y), max(_ALL_ROW_Y)
 
 
 class GridTrafficLight:
-    """Simple traffic light for a grid intersection (not the demo one)."""
-
     def __init__(self, x: float, y: float):
         self.x = x
         self.y = y
         self.phase = "NS_GREEN"
-        self.phase_timer = random.uniform(0, TRAFFIC_LIGHT_PHASE_DURATION)  # random offset
+        self.phase_timer = random.uniform(0, TRAFFIC_LIGHT_PHASE_DURATION)
 
     def update(self, dt: float):
         self.phase_timer += dt
@@ -71,9 +74,7 @@ class GridTrafficLight:
             self.phase = "EW_GREEN" if self.phase == "NS_GREEN" else "NS_GREEN"
 
     def is_green_for_axis(self, axis: str) -> bool:
-        if self.phase == "NS_GREEN":
-            return axis == "NS"
-        return axis == "EW"
+        return (axis == "NS") == (self.phase == "NS_GREEN")
 
     def to_dict(self) -> dict:
         return {"x": self.x, "y": self.y, "phase": self.phase}
@@ -87,104 +88,211 @@ def get_grid_info() -> dict:
         "grid_spacing": GRID_SPACING,
         "demo_intersection": {"x": DEMO_INTERSECTION[0], "y": DEMO_INTERSECTION[1]},
         "traffic_light_positions": [{"x": x, "y": y} for x, y in TRAFFIC_LIGHT_INTERSECTIONS],
+        "closed_loop": True,
     }
 
 
-# ──────────────────────── Route Cooldown ────────────────────────
-ROUTE_COOLDOWN = 10.0  # seconds before same route can be reused
+# ──────────────────────── Lane helpers ────────────────────────
 
-# All possible routes as (axis, coord, direction) keys:
-#   ("col", col_x, 180) = heading south on column col_x
-#   ("col", col_x, 0)   = heading north on column col_x
-#   ("row", row_y, 90)  = heading east  on row row_y
-#   ("row", row_y, 270) = heading west  on row row_y
-_ALL_COL_X = sorted(set(x for x, y in INTERSECTIONS))
-_ALL_ROW_Y = sorted(set(y for x, y in INTERSECTIONS))
+def _lane_xy(ix, iy, direction):
+    """Lane-offset position for European right-hand traffic."""
+    d = direction % 360
+    if d == 0:
+        return (ix + LANE_OFFSET, iy)
+    if d == 180:
+        return (ix - LANE_OFFSET, iy)
+    if d == 90:
+        return (ix, iy - LANE_OFFSET)
+    if d == 270:
+        return (ix, iy + LANE_OFFSET)
+    return (ix, iy)
+
+
+# ──────────────────────── Route Building ────────────────────────
+ROUTE_COOLDOWN = 4.0
+PERIMETER_SPAWN_OFFSET = 30.0
+
+
+def _build_straight_route(axis, coord, direction):
+    """Straight route through an entire column or row, edge to edge."""
+    if axis == "col":
+        col_x = coord
+        if direction == 180.0:
+            lane_x = col_x - LANE_OFFSET
+            ys = sorted(set(y for x, y in INTERSECTIONS if x == col_x), reverse=True)
+            wps = [(lane_x, ys[0] + PERIMETER_SPAWN_OFFSET)]
+            for y in ys:
+                wps.append((lane_x, y))
+            wps.append((lane_x, ys[-1] - PERIMETER_SPAWN_OFFSET))
+        else:
+            lane_x = col_x + LANE_OFFSET
+            ys = sorted(set(y for x, y in INTERSECTIONS if x == col_x))
+            wps = [(lane_x, ys[0] - PERIMETER_SPAWN_OFFSET)]
+            for y in ys:
+                wps.append((lane_x, y))
+            wps.append((lane_x, ys[-1] + PERIMETER_SPAWN_OFFSET))
+    else:
+        row_y = coord
+        if direction == 90.0:
+            lane_y = row_y - LANE_OFFSET
+            xs = sorted(set(x for x, y in INTERSECTIONS if y == row_y))
+            wps = [(xs[0] - PERIMETER_SPAWN_OFFSET, lane_y)]
+            for x in xs:
+                wps.append((x, lane_y))
+            wps.append((xs[-1] + PERIMETER_SPAWN_OFFSET, lane_y))
+        else:
+            lane_y = row_y + LANE_OFFSET
+            xs = sorted(set(x for x, y in INTERSECTIONS if y == row_y), reverse=True)
+            wps = [(xs[0] + PERIMETER_SPAWN_OFFSET, lane_y)]
+            for x in xs:
+                wps.append((x, lane_y))
+            wps.append((xs[-1] - PERIMETER_SPAWN_OFFSET, lane_y))
+    return wps, direction
+
+
+def _build_turn_route(entry_edge, entry_idx, turn_intersection, exit_dir):
+    """Build an L-shaped route: enter from a grid edge, turn at an intersection, exit."""
+    turn_ix, turn_iy = turn_intersection
+    wps = []
+
+    if entry_edge == "top":
+        entry_dir = 180.0
+        col_x = _ALL_COL_X[entry_idx]
+        lane_x = col_x - LANE_OFFSET
+        wps.append((lane_x, _MAX_Y + PERIMETER_SPAWN_OFFSET))
+        ys_entry = sorted([y for x, y in INTERSECTIONS if x == col_x and y >= turn_iy], reverse=True)
+        for y in ys_entry:
+            wps.append((lane_x, y))
+    elif entry_edge == "bottom":
+        entry_dir = 0.0
+        col_x = _ALL_COL_X[entry_idx]
+        lane_x = col_x + LANE_OFFSET
+        wps.append((lane_x, _MIN_Y - PERIMETER_SPAWN_OFFSET))
+        ys_entry = sorted([y for x, y in INTERSECTIONS if x == col_x and y <= turn_iy])
+        for y in ys_entry:
+            wps.append((lane_x, y))
+    elif entry_edge == "left":
+        entry_dir = 90.0
+        row_y = _ALL_ROW_Y[entry_idx]
+        lane_y = row_y - LANE_OFFSET
+        wps.append((_MIN_X - PERIMETER_SPAWN_OFFSET, lane_y))
+        xs_entry = sorted([x for x, y in INTERSECTIONS if y == row_y and x <= turn_ix])
+        for x in xs_entry:
+            wps.append((x, lane_y))
+    elif entry_edge == "right":
+        entry_dir = 270.0
+        row_y = _ALL_ROW_Y[entry_idx]
+        lane_y = row_y + LANE_OFFSET
+        wps.append((_MAX_X + PERIMETER_SPAWN_OFFSET, lane_y))
+        xs_entry = sorted([x for x, y in INTERSECTIONS if y == row_y and x >= turn_ix], reverse=True)
+        for x in xs_entry:
+            wps.append((x, lane_y))
+    else:
+        return [], 0.0
+
+    # Turn waypoint
+    turn_wp = _lane_xy(turn_ix, turn_iy, exit_dir)
+    wps.append(turn_wp)
+
+    # Exit leg
+    if exit_dir == 0.0:
+        lane_x = turn_ix + LANE_OFFSET
+        exits = sorted([y for x, y in INTERSECTIONS if x == turn_ix and y > turn_iy])
+        for y in exits:
+            wps.append((lane_x, y))
+        wps.append((lane_x, _MAX_Y + PERIMETER_SPAWN_OFFSET))
+    elif exit_dir == 180.0:
+        lane_x = turn_ix - LANE_OFFSET
+        exits = sorted([y for x, y in INTERSECTIONS if x == turn_ix and y < turn_iy], reverse=True)
+        for y in exits:
+            wps.append((lane_x, y))
+        wps.append((lane_x, _MIN_Y - PERIMETER_SPAWN_OFFSET))
+    elif exit_dir == 90.0:
+        lane_y = turn_iy - LANE_OFFSET
+        exits = sorted([x for x, y in INTERSECTIONS if y == turn_iy and x > turn_ix])
+        for x in exits:
+            wps.append((x, lane_y))
+        wps.append((_MAX_X + PERIMETER_SPAWN_OFFSET, lane_y))
+    elif exit_dir == 270.0:
+        lane_y = turn_iy + LANE_OFFSET
+        exits = sorted([x for x, y in INTERSECTIONS if y == turn_iy and x < turn_ix], reverse=True)
+        for x in exits:
+            wps.append((x, lane_y))
+        wps.append((_MIN_X - PERIMETER_SPAWN_OFFSET, lane_y))
+
+    return wps, entry_dir
+
+
+# ──────────────────────── Route Catalogue ────────────────────────
 
 _ALL_ROUTE_KEYS = []
+
+# Straight routes (edge to edge)
 for cx in _ALL_COL_X:
-    _ALL_ROUTE_KEYS.append(("col", cx, 180.0))
-    _ALL_ROUTE_KEYS.append(("col", cx, 0.0))
+    _ALL_ROUTE_KEYS.append(("straight", "col", cx, 180.0))
+    _ALL_ROUTE_KEYS.append(("straight", "col", cx, 0.0))
 for ry in _ALL_ROW_Y:
-    _ALL_ROUTE_KEYS.append(("row", ry, 90.0))
-    _ALL_ROUTE_KEYS.append(("row", ry, 270.0))
+    _ALL_ROUTE_KEYS.append(("straight", "row", ry, 90.0))
+    _ALL_ROUTE_KEYS.append(("straight", "row", ry, 270.0))
+
+# Turn routes at interior intersections
+for ix, iy in INTERSECTIONS:
+    if abs(ix) < 1 and abs(iy) < 1:
+        continue  # skip demo center
+
+    col_idx = _ALL_COL_X.index(ix) if ix in _ALL_COL_X else -1
+    row_idx = _ALL_ROW_Y.index(iy) if iy in _ALL_ROW_Y else -1
+    if col_idx < 0 or row_idx < 0:
+        continue
+
+    # Enter from top (south), turn east/west
+    _ALL_ROUTE_KEYS.append(("turn", "top", col_idx, (ix, iy), 90.0))
+    _ALL_ROUTE_KEYS.append(("turn", "top", col_idx, (ix, iy), 270.0))
+    # Enter from bottom (north), turn east/west
+    _ALL_ROUTE_KEYS.append(("turn", "bottom", col_idx, (ix, iy), 90.0))
+    _ALL_ROUTE_KEYS.append(("turn", "bottom", col_idx, (ix, iy), 270.0))
+    # Enter from left (east), turn north/south
+    _ALL_ROUTE_KEYS.append(("turn", "left", row_idx, (ix, iy), 0.0))
+    _ALL_ROUTE_KEYS.append(("turn", "left", row_idx, (ix, iy), 180.0))
+    # Enter from right (west), turn north/south
+    _ALL_ROUTE_KEYS.append(("turn", "right", row_idx, (ix, iy), 0.0))
+    _ALL_ROUTE_KEYS.append(("turn", "right", row_idx, (ix, iy), 180.0))
 
 
 def _build_route(route_key) -> Tuple[List[Tuple[float, float]], float]:
-    """Build waypoints for a given route key."""
-    axis, coord, direction = route_key
+    rtype = route_key[0]
+    if rtype == "straight":
+        _, axis, coord, direction = route_key
+        return _build_straight_route(axis, coord, direction)
+    elif rtype == "turn":
+        _, edge, idx, intersection, exit_dir = route_key
+        return _build_turn_route(edge, idx, intersection, exit_dir)
+    return [], 0.0
 
-    if axis == "col":
-        col_x = coord
-        if direction == 180.0:  # heading south
-            lane_x = col_x - LANE_OFFSET
-            row_y_values = sorted(set(y for x, y in INTERSECTIONS if x == col_x), reverse=True)
-            start_y = row_y_values[0] + SPAWN_MARGIN
-            end_y = row_y_values[-1] - SPAWN_MARGIN
-            waypoints = [(lane_x, start_y)]
-            for ry in row_y_values:
-                waypoints.append((lane_x, ry))
-            waypoints.append((lane_x, end_y))
-        else:  # direction == 0.0, heading north
-            lane_x = col_x + LANE_OFFSET
-            row_y_values = sorted(set(y for x, y in INTERSECTIONS if x == col_x))
-            start_y = row_y_values[0] - SPAWN_MARGIN
-            end_y = row_y_values[-1] + SPAWN_MARGIN
-            waypoints = [(lane_x, start_y)]
-            for ry in row_y_values:
-                waypoints.append((lane_x, ry))
-            waypoints.append((lane_x, end_y))
-    else:  # axis == "row"
-        row_y = coord
-        if direction == 90.0:  # heading east
-            lane_y = row_y - LANE_OFFSET
-            col_x_values = sorted(set(x for x, y in INTERSECTIONS if y == row_y))
-            start_x = col_x_values[0] - SPAWN_MARGIN
-            end_x = col_x_values[-1] + SPAWN_MARGIN
-            waypoints = [(start_x, lane_y)]
-            for cx in col_x_values:
-                waypoints.append((cx, lane_y))
-            waypoints.append((end_x, lane_y))
-        else:  # direction == 270.0, heading west
-            lane_y = row_y + LANE_OFFSET
-            col_x_values = sorted(set(x for x, y in INTERSECTIONS if y == row_y), reverse=True)
-            start_x = col_x_values[0] + SPAWN_MARGIN
-            end_x = col_x_values[-1] - SPAWN_MARGIN
-            waypoints = [(start_x, lane_y)]
-            for cx in col_x_values:
-                waypoints.append((cx, lane_y))
-            waypoints.append((end_x, lane_y))
 
-    return waypoints, direction
-
+# ──────────────────────── Background Traffic Manager ────────────────────────
 
 class BackgroundTrafficManager:
-    """Manages ambient background traffic on the city grid."""
-
     def __init__(self):
         self._vehicles: Dict[str, VehicleAgent] = {}
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._counter = 0
         self._lock = threading.Lock()
-        # Grid traffic lights
         self._traffic_lights: List[GridTrafficLight] = [
             GridTrafficLight(x, y) for x, y in TRAFFIC_LIGHT_INTERSECTIONS
         ]
         self._tl_thread: Optional[threading.Thread] = None
-        # Route cooldown: route_key -> last_used_timestamp
-        self._route_cooldowns: Dict[tuple, float] = {}
+        self._route_cooldowns: Dict = {}
 
     @property
     def active(self) -> bool:
         return self._running
 
     def get_traffic_light_states(self) -> List[dict]:
-        """Return current state of all grid traffic lights."""
         return [tl.to_dict() for tl in self._traffic_lights]
 
     def get_traffic_light_for(self, x: float, y: float) -> Optional[GridTrafficLight]:
-        """Return traffic light at a given intersection, or None."""
         for tl in self._traffic_lights:
             if abs(tl.x - x) < 1.0 and abs(tl.y - y) < 1.0:
                 return tl
@@ -210,7 +318,6 @@ class BackgroundTrafficManager:
         logger.info("Background traffic stopped")
 
     def _tl_loop(self):
-        """Update grid traffic lights."""
         dt = 0.2
         while self._running:
             for tl in self._traffic_lights:
@@ -234,41 +341,38 @@ class BackgroundTrafficManager:
                 del self._vehicles[vid]
 
     def _is_spawn_blocked(self, start_x: float, start_y: float, direction: float) -> bool:
-        """Check if another vehicle is too close to the spawn point on the same lane."""
         all_states = channel.get_all_states()
         for msg in all_states.values():
             if msg.agent_type != "vehicle":
                 continue
-            d = math.sqrt((msg.x - start_x)**2 + (msg.y - start_y)**2)
+            d = math.sqrt((msg.x - start_x) ** 2 + (msg.y - start_y) ** 2)
             if d < MIN_SPAWN_DISTANCE:
-                # Same general direction? (within 30 degrees)
                 angle_diff = abs(msg.direction - direction) % 360
                 if angle_diff < 30 or angle_diff > 330:
                     return True
         return False
 
     def _spawn_vehicle(self):
-        """Spawn a new background vehicle with a random route, avoiding recently used routes."""
         now = time.time()
 
-        # Filter out routes that are on cooldown
-        available_keys = [
+        def _cooldown_key(rk):
+            return str(rk)
+
+        available = [
             rk for rk in _ALL_ROUTE_KEYS
-            if now - self._route_cooldowns.get(rk, 0) >= ROUTE_COOLDOWN
+            if now - self._route_cooldowns.get(_cooldown_key(rk), 0) >= ROUTE_COOLDOWN
         ]
 
-        if not available_keys:
-            return  # all routes on cooldown, wait
+        if not available:
+            return
 
-        # Shuffle and try routes until we find one not spawn-blocked
-        random.shuffle(available_keys)
-        for route_key in available_keys:
+        random.shuffle(available)
+        for route_key in available:
             waypoints, direction = _build_route(route_key)
             if len(waypoints) < 2:
                 continue
             start_x, start_y = waypoints[0]
             if not self._is_spawn_blocked(start_x, start_y, direction):
-                # Found a good route
                 speed = random.uniform(BG_SPEED_MIN, BG_SPEED_MAX)
                 is_emergency = random.random() < EMERGENCY_CHANCE
 
@@ -281,7 +385,7 @@ class BackgroundTrafficManager:
                     start_y=start_y,
                     direction=direction,
                     initial_speed=speed,
-                    target_speed=speed if not is_emergency else min(speed * 1.4, 14.0),
+                    target_speed=speed if not is_emergency else min(speed * 1.4, 25.0),
                     intention="straight",
                     is_emergency=is_emergency,
                     waypoints=waypoints[1:],
@@ -290,15 +394,12 @@ class BackgroundTrafficManager:
                 with self._lock:
                     self._vehicles[agent_id] = vehicle
 
-                # Record cooldown for this route
-                self._route_cooldowns[route_key] = now
+                self._route_cooldowns[_cooldown_key(route_key)] = now
 
                 vehicle.start()
                 etype = " [EMERGENCY]" if is_emergency else ""
                 logger.debug(f"Spawned {agent_id}{etype} at ({start_x:.0f}, {start_y:.0f}) dir={direction}")
                 return
-
-        # All routes blocked, skip this cycle
 
     def get_vehicle_count(self) -> int:
         with self._lock:
@@ -306,7 +407,4 @@ class BackgroundTrafficManager:
 
 
 bg_traffic = BackgroundTrafficManager()
-
-
-
 

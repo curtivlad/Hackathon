@@ -1,0 +1,13 @@
+INFO:     Started server process [27668]
+INFO:     Waiting for application startup.
+2026-02-28 21:47:16,492 [main] INFO: ============================================================
+2026-02-28 21:47:16,493 [main] INFO:   V2X Safety Agent — starting up
+2026-02-28 21:47:16,494 [main] INFO:   Auth enabled: True
+2026-02-28 21:47:16,495 [main] INFO:   REST rate limit: 30 req/min/IP
+2026-02-28 21:47:16,496 [main] INFO:   Max WS connections: 10
+2026-02-28 21:47:16,497 [main] INFO:   LLM circuit breaker: enabled
+2026-02-28 21:47:16,498 [main] INFO:   NOTICE: Server MUST run with workers=1 (in-process state)
+2026-02-28 21:47:16,499 [main] INFO:   For horizontal scaling, replace SimulationManager with Redis.
+2026-02-28 21:47:16,500 [main] INFO: ============================================================
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
