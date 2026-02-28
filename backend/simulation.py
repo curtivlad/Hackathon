@@ -10,7 +10,8 @@ Scenarii disponibile:
 import time
 import threading
 from typing import List, Optional
-from agents import VehicleAgent, InfrastructureAgent
+from agents import VehicleAgent
+from infrastructure_agent import InfrastructureAgent
 from v2x_channel import channel
 from collision_detector import get_collision_pairs
 
@@ -196,7 +197,6 @@ class SimulationManager:
             for pair in prev_risks:
                 if pair not in current_risks:
                     self.stats["collisions_prevented"] += 1
-                    self.infrastructure.collisions_prevented += 1
 
             prev_risks = current_risks
 
