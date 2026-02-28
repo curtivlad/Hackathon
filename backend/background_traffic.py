@@ -358,7 +358,11 @@ class BackgroundTrafficManager:
         return self._running
 
     def get_traffic_light_states(self) -> List[dict]:
-        return self._coordinator.get_all_states()
+        return [
+            self._coordinator.get_light(x, y).to_dict()
+            for x, y in TRAFFIC_LIGHT_INTERSECTIONS
+            if self._coordinator.get_light(x, y) is not None
+        ]
 
     def get_traffic_light_for(self, x: float, y: float) -> Optional[GridTrafficLight]:
         light = self._coordinator.get_light(x, y)
