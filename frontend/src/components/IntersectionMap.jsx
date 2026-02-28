@@ -764,10 +764,6 @@ export default function IntersectionMap({
         }
       }
 
-      ctx.fillStyle = "rgba(255,255,255,0.2)";
-      ctx.font = "11px monospace"; ctx.textAlign = "right";
-      ctx.fillText(`Zoom: ${(cam.zoom * 100).toFixed(0)}%`, cam.canvasW - 12, cam.canvasH - 12);
-
       rafRef.current = requestAnimationFrame(renderFrame);
     };
 
