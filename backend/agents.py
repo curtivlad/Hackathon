@@ -85,6 +85,13 @@ class VehicleAgent:
         self._drunk_erratic_end = 0.0
         self._drunk_erratic_speed = 0.0
 
+        # Pull-over state — when an ambulance is behind, pull to the side
+        self._pulling_over = False          # currently pulling over
+        self._pullover_offset = 0.0         # how far we've shifted laterally
+        self._pullover_original_x = None    # original lane x before pull-over
+        self._pullover_original_y = None    # original lane y before pull-over
+        self._pullover_target_offset = 8.0  # how far to shift to the side (units)
+
     # ──────────────────────── Helpers ────────────────────────
 
     def _moves_on_y(self):
@@ -107,6 +114,169 @@ class VehicleAgent:
             return abs(self.y) >= STOP_LINE
         else:
             return abs(self.x) >= STOP_LINE
+
+    # ──────────────────────── Emergency Vehicle Pull-Over ────────────────────────
+
+    PULLOVER_DETECT_RANGE = 80.0   # how far behind to detect ambulance
+    PULLOVER_LATERAL_SHIFT = 14.0  # how far to shift to the side (road edge ~20 from lane)
+    PULLOVER_PERP_TOL = 14.0       # lateral tolerance for "same lane" (behind)
+    PULLOVER_DIR_TOL = 50.0        # heading tolerance
+
+    def _detect_emergency_behind(self):
+        """Check if an emergency vehicle is behind us on the same lane, approaching.
+        Returns the emergency vehicle info dict if found, else None.
+        """
+        if self.is_emergency or self.is_drunk:
+            return None  # emergencies don't pull over; drunk drivers ignore
+
+        nearby = self._get_nearby_vehicles_info()
+        rad = math.radians(self.direction)
+        fwd_x = math.sin(rad)
+        fwd_y = math.cos(rad)
+
+        for o in nearby:
+            if not o.get("is_emergency"):
+                continue
+
+            # Vector from us to the other vehicle
+            rel_x = o["x"] - self.x
+            rel_y = o["y"] - self.y
+
+            # Project onto our forward axis: negative = behind us
+            proj = rel_x * fwd_x + rel_y * fwd_y
+            if proj > 5.0:
+                continue  # ambulance is ahead, not behind — no need to pull over
+
+            if abs(proj) > self.PULLOVER_DETECT_RANGE:
+                continue  # too far
+
+            # Perpendicular distance — must be roughly same lane
+            perp = abs(rel_x * (-fwd_y) + rel_y * fwd_x)
+            if perp > self.PULLOVER_PERP_TOL:
+                continue  # different road entirely
+
+            # Heading similarity — ambulance going the same direction
+            dir_diff = abs(((o["direction"] - self.direction + 180) % 360) - 180)
+            if dir_diff > self.PULLOVER_DIR_TOL:
+                continue  # not heading the same way
+
+            # Ambulance is behind us on the same lane!
+            return o
+
+        return None
+
+    def _is_inside_any_intersection(self):
+        """Check if vehicle is inside any intersection on the grid.
+        Works for both demo vehicles (center intersection) and background vehicles (grid).
+        """
+        # For background vehicles — use grid intersection check
+        if self._is_background:
+            return self._is_inside_nearest_intersection()
+        # For demo vehicles — use the center intersection
+        return self._entered_intersection and not self._passed_intersection
+
+    def _apply_pullover(self):
+        """Shift the vehicle laterally to the right side of the road and stop.
+        Called each tick while pulling over. Returns True if actively pulling over.
+
+        Special case: if the vehicle is inside an intersection when it detects
+        the ambulance, it accelerates through the intersection first and only
+        pulls over after exiting.
+        """
+        emergency = self._detect_emergency_behind()
+
+        if emergency is not None:
+            # ── Inside intersection: accelerate through, don't stop here ──
+            if self._is_inside_any_intersection():
+                if not self._pulling_over:
+                    # Mark that we WANT to pull over but are deferring
+                    self._pulling_over = True
+                    self._pullover_offset = 0.0
+                    self._pullover_original_x = None  # will set when actually pulling over
+                    self._pullover_original_y = None
+                    logger.info(f"[{self.agent_id}] Ambulance behind — accelerating through intersection first")
+
+                    self._broadcast_v2x_alert(
+                        "pulling_over",
+                        f"Accelerating through intersection, will pull over for {emergency['id']}"
+                    )
+
+                # Accelerate to clear the intersection quickly
+                self.decision = "go"
+                self.reason = "clearing_intersection_for_emergency"
+                self.recommended_speed = min(MAX_SPEED, self.target_speed * 1.4)
+                return True
+
+            # ── Outside intersection: actually pull over ──
+            if not self._pulling_over:
+                self._pulling_over = True
+                self._pullover_offset = 0.0
+                logger.info(f"[{self.agent_id}] Pulling over for emergency {emergency['id']}")
+
+                self._broadcast_v2x_alert(
+                    "pulling_over",
+                    f"Pulling over for emergency vehicle {emergency['id']}"
+                )
+
+            # Save original position when we first start the lateral shift
+            if self._pullover_original_x is None:
+                self._pullover_original_x = self.x
+                self._pullover_original_y = self.y
+
+            # Shift laterally to the right (toward the road edge)
+            if self._pullover_offset < self.PULLOVER_LATERAL_SHIFT:
+                shift_speed = 15.0 * UPDATE_INTERVAL  # lateral shift speed
+                actual_shift = min(
+                    shift_speed,
+                    self.PULLOVER_LATERAL_SHIFT - self._pullover_offset
+                )
+                self._pullover_offset += actual_shift
+
+                # Right side = heading + 90° (clockwise)
+                right_rad = math.radians(self.direction + 90.0)
+                right_x = math.sin(right_rad)
+                right_y = math.cos(right_rad)
+
+                self.x += right_x * actual_shift
+                self.y += right_y * actual_shift
+
+            # Stop the vehicle
+            self.decision = "stop"
+            self.reason = "pullover_emergency"
+            self.recommended_speed = 0.0
+            self.speed = max(0.0, self.speed - DECELERATION * UPDATE_INTERVAL)
+            return True
+
+        elif self._pulling_over:
+            # Ambulance has passed — return to original lane
+            if self._pullover_offset > 0.5:
+                # Shift back to the left
+                shift_speed = 10.0 * UPDATE_INTERVAL
+                actual_shift = min(shift_speed, self._pullover_offset)
+                self._pullover_offset -= actual_shift
+
+                # Left = heading - 90° (counterclockwise)
+                left_rad = math.radians(self.direction - 90.0)
+                left_x = math.sin(left_rad)
+                left_y = math.cos(left_rad)
+
+                self.x += left_x * actual_shift
+                self.y += left_y * actual_shift
+
+                self.decision = "stop"
+                self.reason = "returning_to_lane"
+                self.recommended_speed = 0.0
+                return True
+            else:
+                # Fully returned — resume normal driving
+                self._pulling_over = False
+                self._pullover_offset = 0.0
+                self._pullover_original_x = None
+                self._pullover_original_y = None
+                logger.info(f"[{self.agent_id}] Returned to lane, resuming")
+                return False
+
+        return False
 
     # ──────────────────────── Traffic Light Detection ────────────────────────
 
@@ -249,6 +419,17 @@ class VehicleAgent:
             if dir_diff > DIR_TOLERANCE:
                 continue  # facing different direction
 
+            # Emergency vehicles skip vehicles that are pulling over for them
+            if self.is_emergency and o.get("decision") == "stop":
+                # Check V2X broadcasts for "pulling_over" from this vehicle
+                alerts = channel.get_broadcasts_for(self.agent_id, last_seconds=3.0)
+                is_pulling_over = any(
+                    a.from_id == o["id"] and a.alert_type == "pulling_over"
+                    for a in alerts
+                )
+                if is_pulling_over:
+                    continue  # this vehicle is yielding to us, skip it
+
             # ── Vehicle is ahead, same lane, same direction ──
             gap = proj
             leader_speed = o["speed"]
@@ -295,6 +476,10 @@ class VehicleAgent:
 
         # Broadcast V2X alerts based on current state
         self._send_situational_v2x_alerts()
+
+        # ── Pull over for emergency vehicle behind us ──
+        if self._apply_pullover():
+            return  # pulling over or returning to lane — skip normal logic
 
         if self.is_emergency:
             self.decision = "go"
@@ -730,6 +915,10 @@ class VehicleAgent:
 
     def _bg_compute_risk_and_decision(self):
         """Compute risk and decision for a background vehicle using V2X channel."""
+        # ── Pull over for emergency vehicle behind us ──
+        if self._apply_pullover():
+            return  # pulling over or returning to lane — skip normal logic
+
         others = channel.get_other_agents(self.agent_id)
         my_msg = self._build_message()
 
@@ -1108,8 +1297,8 @@ class VehicleAgent:
                             self.target_speed * turn_factor
                         )
 
-            # Anti-deadlock
-            if self.decision in ("yield", "stop"):
+            # Anti-deadlock (but not when pulling over for emergency)
+            if self.decision in ("yield", "stop") and self.reason not in ("pullover_emergency", "returning_to_lane"):
                 yield_counter += 1
                 if yield_counter > 60:
                     self.decision = "go"
@@ -1161,6 +1350,10 @@ class VehicleAgent:
         self._passed_intersection = False
         self._fallback_consecutive = 0
         self._fallback_last_action = None
+        self._pulling_over = False
+        self._pullover_offset = 0.0
+        self._pullover_original_x = None
+        self._pullover_original_y = None
         self._llm_brain.reset()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
@@ -1177,6 +1370,7 @@ class VehicleAgent:
             "decision": self.decision, "reason": self.reason,
             "is_emergency": self.is_emergency,
             "is_drunk": self.is_drunk,
+            "pulling_over": self._pulling_over,
         }
         # Include LLM + memory stats
         llm_stats = self._llm_brain.get_stats()

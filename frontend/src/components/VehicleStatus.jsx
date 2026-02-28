@@ -65,6 +65,11 @@ function VehicleCard({ agent }) {
             <Stat label="Reason" value={agent.reason} />
           </div>
         )}
+        {agent.pulling_over && (
+          <div style={{ gridColumn: "span 2" }}>
+            <Stat label="Status" value="⚠ PULLING OVER FOR EMERGENCY" valueColor="#ffab00" />
+          </div>
+        )}
         {(agent.llm_calls !== undefined && agent.llm_calls > 0) && (
           <div style={{ gridColumn: "span 2" }}>
             <Stat
