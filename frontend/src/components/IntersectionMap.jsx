@@ -8,11 +8,11 @@ const ROAD_W = 60 * SCALE;
 const HALF_ROAD = ROAD_W / 2;
 
 const COLORS = {
-  road: "#2a2a2a",
+  road: "#222222",
   roadLine: "#555",
   laneDivider: "#444",
-  sidewalk: "#1a1a2e",
-  crosswalk: "#3a3a3a",
+  sidewalk: "#111111",
+  crosswalk: "#e0e0e0",
   vehicle_go: "#00e676",
   vehicle_yield: "#ffeb3b",
   vehicle_brake: "#ff9800",
@@ -38,118 +38,229 @@ function drawRoad(ctx) {
   ctx.fillRect(0, CENTER - HALF_ROAD, CANVAS_SIZE, ROAD_W);
   ctx.fillRect(CENTER - HALF_ROAD, 0, ROAD_W, CANVAS_SIZE);
 
-  // Crosswalk strips at intersection edges
   ctx.fillStyle = COLORS.crosswalk;
-  const stripW = 3, stripGap = 5, numStrips = Math.floor(ROAD_W / (stripW + stripGap));
+  const stripW = 4, stripGap = 8;
+  const numStrips = Math.floor((ROAD_W + stripGap) / (stripW + stripGap));
+  const totalStripsWidth = numStrips * stripW + (numStrips - 1) * stripGap;
+  const sideMargin = (ROAD_W - totalStripsWidth) / 2;
+
+  const cwStart = HALF_ROAD + 2;      // Inner bounding line
+  const cwPadding = 4;                // Gap between bounding lines and zebra
+  const cwZebraStart = cwStart + cwPadding;
+  const cwZebraLength = 12;           // Length of the zebra strips
+  const cwOuterLine = cwZebraStart + cwZebraLength + cwPadding; // Outer bounding line
+
+  // Draw zebra stripes
   for (let i = 0; i < numStrips; i++) {
-    const offset = CENTER - HALF_ROAD + i * (stripW + stripGap) + 2;
-    ctx.fillRect(offset, CENTER - HALF_ROAD - 6, stripW, 6);
-    ctx.fillRect(offset, CENTER + HALF_ROAD, stripW, 6);
-    ctx.fillRect(CENTER - HALF_ROAD - 6, offset, 6, stripW);
-    ctx.fillRect(CENTER + HALF_ROAD, offset, 6, stripW);
+    const offset = CENTER - HALF_ROAD + sideMargin + i * (stripW + stripGap);
+    // Top
+    ctx.fillRect(offset, CENTER - cwZebraStart - cwZebraLength, stripW, cwZebraLength);
+    // Bottom
+    ctx.fillRect(offset, CENTER + cwZebraStart, stripW, cwZebraLength);
+    // Left
+    ctx.fillRect(CENTER - cwZebraStart - cwZebraLength, offset, cwZebraLength, stripW);
+    // Right
+    ctx.fillRect(CENTER + cwZebraStart, offset, cwZebraLength, stripW);
   }
 
-  // Stop lines — full width across each road approach
-  ctx.strokeStyle = "#fff";
-  ctx.lineWidth = 3;
-  // Top approach
-  ctx.beginPath();
-  ctx.moveTo(CENTER - HALF_ROAD, CENTER - HALF_ROAD - 8);
-  ctx.lineTo(CENTER + HALF_ROAD, CENTER - HALF_ROAD - 8);
-  ctx.stroke();
-  // Bottom approach
-  ctx.beginPath();
-  ctx.moveTo(CENTER - HALF_ROAD, CENTER + HALF_ROAD + 8);
-  ctx.lineTo(CENTER + HALF_ROAD, CENTER + HALF_ROAD + 8);
-  ctx.stroke();
-  // Right approach
-  ctx.beginPath();
-  ctx.moveTo(CENTER + HALF_ROAD + 8, CENTER - HALF_ROAD);
-  ctx.lineTo(CENTER + HALF_ROAD + 8, CENTER + HALF_ROAD);
-  ctx.stroke();
-  // Left approach
-  ctx.beginPath();
-  ctx.moveTo(CENTER - HALF_ROAD - 8, CENTER - HALF_ROAD);
-  ctx.lineTo(CENTER - HALF_ROAD - 8, CENTER + HALF_ROAD);
-  ctx.stroke();
-
-  // Lane dividers (dashed center lines on each road segment, outside intersection)
-  ctx.setLineDash([12, 10]);
-  ctx.strokeStyle = "#ffeb3b";
+  // Stop lines — lines bounding the crosswalks (before and after)
+  ctx.strokeStyle = COLORS.crosswalk;
   ctx.lineWidth = 2;
-
-  // Vertical road — top segment
+  
+  // Top crosswalk lines
   ctx.beginPath();
-  ctx.moveTo(CENTER, 0);
-  ctx.lineTo(CENTER, CENTER - HALF_ROAD);
+  ctx.moveTo(CENTER - HALF_ROAD, CENTER - cwOuterLine); // outer line
+  ctx.lineTo(CENTER + HALF_ROAD, CENTER - cwOuterLine);
+  ctx.moveTo(CENTER - HALF_ROAD, CENTER - cwStart);     // inner line (stop line)
+  ctx.lineTo(CENTER + HALF_ROAD, CENTER - cwStart);
+  ctx.stroke();
+  
+  // Bottom crosswalk lines
+  ctx.beginPath();
+  ctx.moveTo(CENTER - HALF_ROAD, CENTER + cwStart);     // inner line (stop line)
+  ctx.lineTo(CENTER + HALF_ROAD, CENTER + cwStart);
+  ctx.moveTo(CENTER - HALF_ROAD, CENTER + cwOuterLine); // outer line
+  ctx.lineTo(CENTER + HALF_ROAD, CENTER + cwOuterLine);
+  ctx.stroke();
+  
+  // Left crosswalk lines
+  ctx.beginPath();
+  ctx.moveTo(CENTER - cwOuterLine, CENTER - HALF_ROAD); // outer line
+  ctx.lineTo(CENTER - cwOuterLine, CENTER + HALF_ROAD);
+  ctx.moveTo(CENTER - cwStart, CENTER - HALF_ROAD);     // inner line (stop line)
+  ctx.lineTo(CENTER - cwStart, CENTER + HALF_ROAD);
+  ctx.stroke();
+  
+  // Right crosswalk lines
+  ctx.beginPath();
+  ctx.moveTo(CENTER + cwStart, CENTER - HALF_ROAD);     // inner line (stop line)
+  ctx.lineTo(CENTER + cwStart, CENTER + HALF_ROAD);
+  ctx.moveTo(CENTER + cwOuterLine, CENTER - HALF_ROAD); // outer line
+  ctx.lineTo(CENTER + cwOuterLine, CENTER + HALF_ROAD);
+  ctx.stroke();
+
+  // Lane dividers (dashed lines separating opposite directions)
+  ctx.setLineDash([20, 20]);
+  ctx.strokeStyle = "#fcfcfc"; // lighter color towards white
+  ctx.lineWidth = 3;
+
+  const dashEnd = cwOuterLine + 8; // start dashed line slightly further from crosswalk
+
+  // Vertical road — top segment (Draw from dashEnd outwards so the gap near intersection is full)
+  ctx.beginPath();
+  ctx.moveTo(CENTER, CENTER - dashEnd);
+  ctx.lineTo(CENTER, 0);
   ctx.stroke();
 
   // Vertical road — bottom segment
   ctx.beginPath();
-  ctx.moveTo(CENTER, CENTER + HALF_ROAD);
+  ctx.moveTo(CENTER, CENTER + dashEnd);
   ctx.lineTo(CENTER, CANVAS_SIZE);
   ctx.stroke();
 
-  // Horizontal road — left segment
+  // Horizontal road — left segment (Draw from dashEnd outwards)
   ctx.beginPath();
-  ctx.moveTo(0, CENTER);
-  ctx.lineTo(CENTER - HALF_ROAD, CENTER);
+  ctx.moveTo(CENTER - dashEnd, CENTER);
+  ctx.lineTo(0, CENTER);
   ctx.stroke();
 
   // Horizontal road — right segment
   ctx.beginPath();
-  ctx.moveTo(CENTER + HALF_ROAD, CENTER);
+  ctx.moveTo(CENTER + dashEnd, CENTER);
   ctx.lineTo(CANVAS_SIZE, CENTER);
   ctx.stroke();
 
   ctx.setLineDash([]);
 
-  // Road edge lines (solid white)
+  
   ctx.strokeStyle = "#666";
   ctx.lineWidth = 1;
 
-  // Vertical road edges
+  
   ctx.beginPath();
   ctx.moveTo(CENTER - HALF_ROAD, 0);
-  ctx.lineTo(CENTER - HALF_ROAD, CENTER - HALF_ROAD);
+  ctx.lineTo(CENTER - HALF_ROAD, CENTER - dashEnd + 8);
   ctx.moveTo(CENTER + HALF_ROAD, 0);
-  ctx.lineTo(CENTER + HALF_ROAD, CENTER - HALF_ROAD);
-  ctx.moveTo(CENTER - HALF_ROAD, CENTER + HALF_ROAD);
+  ctx.lineTo(CENTER + HALF_ROAD, CENTER - dashEnd + 8);
+  ctx.moveTo(CENTER - HALF_ROAD, CENTER + dashEnd - 8);
   ctx.lineTo(CENTER - HALF_ROAD, CANVAS_SIZE);
-  ctx.moveTo(CENTER + HALF_ROAD, CENTER + HALF_ROAD);
+  ctx.moveTo(CENTER + HALF_ROAD, CENTER + dashEnd - 8);
   ctx.lineTo(CENTER + HALF_ROAD, CANVAS_SIZE);
   ctx.stroke();
 
-  // Horizontal road edges
+  
   ctx.beginPath();
   ctx.moveTo(0, CENTER - HALF_ROAD);
-  ctx.lineTo(CENTER - HALF_ROAD, CENTER - HALF_ROAD);
+  ctx.lineTo(CENTER - dashEnd + 8, CENTER - HALF_ROAD);
   ctx.moveTo(0, CENTER + HALF_ROAD);
-  ctx.lineTo(CENTER + HALF_ROAD, CENTER + HALF_ROAD);
-  ctx.moveTo(CENTER + HALF_ROAD, CENTER - HALF_ROAD);
+  ctx.lineTo(CENTER - dashEnd + 8, CENTER + HALF_ROAD);
+  ctx.moveTo(CENTER + dashEnd - 8, CENTER - HALF_ROAD);
   ctx.lineTo(CANVAS_SIZE, CENTER - HALF_ROAD);
-  ctx.moveTo(CENTER + HALF_ROAD, CENTER + HALF_ROAD);
+  ctx.moveTo(CENTER + dashEnd - 8, CENTER + HALF_ROAD);
   ctx.lineTo(CANVAS_SIZE, CENTER + HALF_ROAD);
   ctx.stroke();
 
-  // Direction arrows on lanes
-  ctx.fillStyle = "#555";
-  ctx.font = "14px monospace";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-
+  
+  // Directional Arrows on the lanes (Only on approaching lanes like in real life)
+  ctx.fillStyle = "#ffffff"; 
   const arrowOffset = HALF_ROAD / 2;
-  // Vertical road: right lane = southbound ↓, left lane = northbound ↑
-  ctx.fillText("↓", CENTER - arrowOffset, CENTER - HALF_ROAD - 20);
-  ctx.fillText("↑", CENTER + arrowOffset, CENTER - HALF_ROAD - 20);
-  ctx.fillText("↓", CENTER - arrowOffset, CENTER + HALF_ROAD + 20);
-  ctx.fillText("↑", CENTER + arrowOffset, CENTER + HALF_ROAD + 20);
+  const arrowDist = HALF_ROAD + 40;
 
-  // Horizontal road: top lane = westbound ←, bottom lane = eastbound →
-  ctx.fillText("←", CENTER + HALF_ROAD + 20, CENTER - arrowOffset);
-  ctx.fillText("→", CENTER + HALF_ROAD + 20, CENTER + arrowOffset);
-  ctx.fillText("←", CENTER - HALF_ROAD - 20, CENTER - arrowOffset);
-  ctx.fillText("→", CENTER - HALF_ROAD - 20, CENTER + arrowOffset);
+  // Helper function to draw a united straight+right arrow (shrunken & proportioned like photo)
+  const drawComplexArrow = (x, y, rotation) => {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rotation);
+    // Scales down the entire arrow and slightly squishes it horizontally for that "painted on road" perspective
+    ctx.scale(0.35, 0.45); 
+
+    ctx.beginPath();
+    
+    // Main Straight Shaft (Thicker and shorter)
+    ctx.moveTo(-4, 25);
+    ctx.lineTo(4, 25);
+    ctx.lineTo(4, 3); // Go up right side of shaft
+    
+    // Branch off to the right turn
+    ctx.lineTo(15, -6); // Outer right branch line
+    ctx.lineTo(13, -11); // Inner right branch
+    ctx.lineTo(26, -9); // Point of right arrow head
+    ctx.lineTo(24, 7);  // Bottom tail of right arrow head
+    ctx.lineTo(18, 0); // Inner recess of right arrow head
+    ctx.lineTo(6, 12);  // Come back to straight arrow shaft
+    
+    // Back to straight arrow head
+    ctx.lineTo(4, -12);  // Up to right base of straight arrow head
+    ctx.lineTo(12, -12); // Right wing extension
+    ctx.lineTo(0, -32);  // TOP TIP (Sharp top)
+    ctx.lineTo(-12, -12);// Left wing extension
+    ctx.lineTo(-4, -12); // Left base of straight arrow head
+    
+    // Down completely straight down the left side
+    ctx.lineTo(-4, 25); 
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  };
+
+  // Top approach (driving DOWN) => Left side, rotation 180deg (Math.PI)
+  drawComplexArrow(CENTER - arrowOffset, CENTER - arrowDist, Math.PI);
+
+  // Bottom approach (driving UP) => Right side, rotation 0deg
+  drawComplexArrow(CENTER + arrowOffset, CENTER + arrowDist, 0);
+
+  // Left approach (driving RIGHT) => Bottom side, rotation 90deg (Math.PI/2)
+  drawComplexArrow(CENTER - arrowDist, CENTER + arrowOffset, Math.PI / 2);
+
+  // Right approach (driving LEFT) => Top side, rotation 270deg (-Math.PI/2)
+  drawComplexArrow(CENTER + arrowDist, CENTER - arrowOffset, -Math.PI / 2);
+}
+
+function drawDecorations(ctx) {
+  // Draw dotted guidelines (very faint) in the intersection to show lanes connecting
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 6]);
+
+  // NS Guidelines
+  ctx.beginPath();
+  ctx.moveTo(CENTER - HALF_ROAD / 2, CENTER - HALF_ROAD);
+  ctx.lineTo(CENTER - HALF_ROAD / 2, CENTER + HALF_ROAD);
+  ctx.moveTo(CENTER + HALF_ROAD / 2, CENTER - HALF_ROAD);
+  ctx.lineTo(CENTER + HALF_ROAD / 2, CENTER + HALF_ROAD);
+  ctx.stroke();
+
+  // EW Guidelines
+  ctx.beginPath();
+  ctx.moveTo(CENTER - HALF_ROAD, CENTER - HALF_ROAD / 2);
+  ctx.lineTo(CENTER + HALF_ROAD, CENTER - HALF_ROAD / 2);
+  ctx.moveTo(CENTER - HALF_ROAD, CENTER + HALF_ROAD / 2);
+  ctx.lineTo(CENTER + HALF_ROAD, CENTER + HALF_ROAD / 2);
+  ctx.stroke();
+
+  // Draw some basic background elements like grass/building blocks
+  const blockSize = Math.min(CANVAS_SIZE / 2 - HALF_ROAD, CANVAS_SIZE / 2 - HALF_ROAD);
+  
+  // Create a pattern for grass/concrete
+  ctx.fillStyle = "#151515"; // slightly lighter than pure sidewalk
+  ctx.setLineDash([]);
+  
+  // Top Left block
+  ctx.fillRect(10, 10, CENTER - HALF_ROAD - 20, CENTER - HALF_ROAD - 20);
+  // Top Right block
+  ctx.fillRect(CENTER + HALF_ROAD + 10, 10, CENTER - HALF_ROAD - 20, CENTER - HALF_ROAD - 20);
+  // Bottom Left block
+  ctx.fillRect(10, CENTER + HALF_ROAD + 10, CENTER - HALF_ROAD - 20, CENTER - HALF_ROAD - 20);
+  // Bottom Right block
+  ctx.fillRect(CENTER + HALF_ROAD + 10, CENTER + HALF_ROAD + 10, CENTER - HALF_ROAD - 20, CENTER - HALF_ROAD - 20);
+
+  // Add some trees / bushes (circles)
+  ctx.fillStyle = "#1c2e1f"; // Dark green
+  ctx.beginPath(); ctx.arc(40, 40, 12, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(80, 50, 16, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(CANVAS_SIZE - 40, 60, 14, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(50, CANVAS_SIZE - 50, 18, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(CANVAS_SIZE - 70, CANVAS_SIZE - 40, 15, 0, Math.PI * 2); ctx.fill();
 }
 
 function drawTrafficLights(ctx, phase) {
@@ -157,21 +268,40 @@ function drawTrafficLights(ctx, phase) {
   const pad = 4;
   const boxW = r * 2 + pad * 2;
   const boxH = r * 2 * 2 + pad * 3;
-  const offset = HALF_ROAD + 8;
+  const cwPaddingOuter = HALF_ROAD + 14 + 14 + 2; // Position strictly behind crosswalk
+  const rightLaneOffset = HALF_ROAD + 8; // Offset to sit next to the lane
 
-
+  // Put traffic lights ON the corner right before entering the intersection
+  // Each structure is responsible for the lane PRECEDING the intersection
   const corners = [
-    // Top-right corner — controls NS (south-bound lane)
-    { x: CENTER + offset, y: CENTER - offset - boxH, green: phase === "NS_GREEN" },
-    // Bottom-left corner — controls NS (north-bound lane)
-    { x: CENTER - offset - boxW, y: CENTER + offset, green: phase === "NS_GREEN" },
-    // Top-left corner — controls EW (east-bound lane)
-    { x: CENTER - offset - boxW, y: CENTER - offset - boxH, green: phase === "EW_GREEN" },
-    // Bottom-right corner — controls EW (west-bound lane)
-    { x: CENTER + offset, y: CENTER + offset, green: phase === "EW_GREEN" },
+    // Top approach (facing north cars) => sits on the left side (or above) the Top road crosswalk
+    { x: CENTER - HALF_ROAD - boxW - 5, y: CENTER - cwPaddingOuter - boxH, green: phase === "NS_GREEN" },
+    
+    // Bottom approach (facing south cars) => sits on the right side of the Bottom road crosswalk
+    { x: CENTER + HALF_ROAD + 5, y: CENTER + cwPaddingOuter, green: phase === "NS_GREEN" },
+    
+    // Left approach (facing east cars) => sits on bottom side of the Left road crosswalk
+    { x: CENTER - cwPaddingOuter - boxH, y: CENTER + HALF_ROAD + 5, green: phase === "EW_GREEN", rotate: true },
+    
+    // Right approach (facing west cars) => sits on top side of the Right road crosswalk
+    { x: CENTER + cwPaddingOuter, y: CENTER - HALF_ROAD - boxW - 5, green: phase === "EW_GREEN", rotate: true },
   ];
 
-  corners.forEach(({ x, y, green }) => {
+  corners.forEach(({ x, y, green, rotate }) => {
+    ctx.save();
+    ctx.translate(x, y);
+
+    if (rotate) {
+      // Rotate 90 degrees for EW lights so they go horizontally
+      ctx.translate(boxH/2, boxW/2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.translate(-boxW/2, -boxH/2);
+      // Ensure drawing happens at 0,0 locally
+      x = 0; y = 0;
+    } else {
+      x = 0; y = 0; 
+    }
+
     ctx.fillStyle = "#111";
     ctx.strokeStyle = "#444";
     ctx.lineWidth = 1;
@@ -180,7 +310,7 @@ function drawTrafficLights(ctx, phase) {
     ctx.fill();
     ctx.stroke();
 
-    // Green light
+    
     ctx.fillStyle = green ? "#00e676" : "#1a3a1a";
     ctx.beginPath();
     ctx.arc(x + boxW / 2, y + pad + r, r, 0, Math.PI * 2);
@@ -192,7 +322,7 @@ function drawTrafficLights(ctx, phase) {
       ctx.shadowBlur = 0;
     }
 
-    // Red light
+    
     ctx.fillStyle = green ? "#3a1a1a" : "#f44336";
     ctx.beginPath();
     ctx.arc(x + boxW / 2, y + pad * 2 + r * 3, r, 0, Math.PI * 2);
@@ -203,6 +333,8 @@ function drawTrafficLights(ctx, phase) {
       ctx.fill();
       ctx.shadowBlur = 0;
     }
+
+    ctx.restore(); // MUST RESTORE CONTEXT AFTER ROTATING IT
   });
 }
 
@@ -235,11 +367,11 @@ function drawVehicle(ctx, agent) {
   ctx.roundRect(-w / 2, -h / 2, w, h, 3);
   ctx.fill();
 
-  // Windshield
+  
   ctx.fillStyle = "rgba(255,255,255,0.15)";
   ctx.fillRect(-w / 2 + 2, -h / 2 + 2, w - 4, 5);
 
-  // Direction arrow
+  
   ctx.fillStyle = "rgba(0,0,0,0.4)";
   ctx.beginPath();
   ctx.moveTo(0, -h / 2 - 5);
@@ -309,6 +441,11 @@ export default function IntersectionMap({ agents = {}, infrastructure = {}, coll
     const ctx = canvas.getContext("2d");
 
     ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    
+    // Draw background decorations first
+    drawDecorations(ctx);
+    
+    // Draw road overlay
     drawRoad(ctx);
     drawCollisionZone(ctx, collisionPairs, agents);
 
@@ -322,26 +459,6 @@ export default function IntersectionMap({ agents = {}, infrastructure = {}, coll
       drawTrafficLights(ctx, infrastructure.phase);
     }
 
-    // Legend
-    ctx.fillStyle = "rgba(0,0,0,0.7)";
-    ctx.beginPath();
-    ctx.roundRect(8, 8, 110, 75, 6);
-    ctx.fill();
-    ctx.font = "9px monospace";
-    const legend = [
-      [COLORS.vehicle_go, "GO"],
-      [COLORS.vehicle_yield, "YIELD"],
-      [COLORS.vehicle_brake, "BRAKE"],
-      [COLORS.vehicle_stop, "STOP"],
-      [COLORS.emergency, "EMERGENCY"],
-    ];
-    legend.forEach(([color, label], i) => {
-      ctx.fillStyle = color;
-      ctx.fillRect(14, 16 + i * 13, 10, 9);
-      ctx.fillStyle = "#ddd";
-      ctx.fillText(label, 30, 25 + i * 13);
-    });
-
   }, [agents, infrastructure, collisionPairs]);
 
   return (
@@ -349,7 +466,7 @@ export default function IntersectionMap({ agents = {}, infrastructure = {}, coll
       ref={canvasRef}
       width={CANVAS_SIZE}
       height={CANVAS_SIZE}
-      style={{ borderRadius: "12px", border: "1px solid #333" }}
+      className="rounded-xl border border-neutral-800"
     />
   );
 }
