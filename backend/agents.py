@@ -211,6 +211,10 @@ class VehicleAgent:
                 self.reason = llm_result["reason"]
                 self.recommended_speed = llm_result["speed"]
 
+                # LLM a decis — resetam contorul fallback (nu mai suntem in fallback)
+                self._fallback_consecutive = 0
+                self._fallback_last_action = None
+
                 # Safety overrides — LLM nu poate trece pe rosu
                 if not self.is_emergency and not self._entered_intersection:
                     if traffic_light == "red":
@@ -330,7 +334,9 @@ class VehicleAgent:
             if all_safe:
                 self.decision = "go"
                 self.reason = "waited_long_enough"
-                logger.info(f"[{self.agent_id}] Adaptive: stopped yielding after {self._fallback_consecutive} steps")
+                self._fallback_consecutive = 0
+                self._fallback_last_action = None
+                logger.info(f"[{self.agent_id}] Adaptive: stopped yielding after prolonged wait")
 
         # ADAPTARE: check V2X broadcasts for emergency nearby
         v2x_alerts = channel.get_broadcasts_for(self.agent_id, last_seconds=3.0)
@@ -371,11 +377,11 @@ class VehicleAgent:
 
     def _record_fallback_decision(self, action: str, reason: str):
         """Inregistreaza decizia fallback in memoria proprie."""
-        # Track consecutive same action
+        # Track consecutive same action (deterministic anti-deadlock)
         if action == self._fallback_last_action:
             self._fallback_consecutive += 1
         else:
-            self._fallback_consecutive = 0
+            self._fallback_consecutive = 1  # prima aparitie a noii actiuni
         self._fallback_last_action = action
 
         # Record in LLM brain memory (chiar daca LLM nu e activ, memoria exista)

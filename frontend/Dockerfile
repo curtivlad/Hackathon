@@ -2,6 +2,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+ARG VITE_API_TOKEN=v2x-secret-token-change-in-prod
+ENV VITE_API_TOKEN=${VITE_API_TOKEN}
+
 COPY package*.json ./
 RUN npm install --legacy-peer-deps
 

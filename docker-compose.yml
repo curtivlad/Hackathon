@@ -12,7 +12,10 @@ services:
     restart: unless-stopped
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        - VITE_API_TOKEN=${API_TOKEN:-v2x-secret-token-change-in-prod}
     container_name: v2x-frontend
     ports:
       - "3000:3000"

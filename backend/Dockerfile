@@ -13,4 +13,5 @@ ENV LLM_ENABLED=true
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# IMPORTANT: workers=1 obligatoriu — SimulationManager e singleton in-process
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

@@ -61,6 +61,131 @@ def _get_client():
             return None
 
 
+# ──────────────────────── CIRCUIT BREAKER ────────────────────────
+
+class CircuitBreaker:
+    """
+    Circuit breaker pentru apeluri LLM.
+
+    Stari:
+      CLOSED  — normal, apelurile trec
+      OPEN    — LLM dezactivat automat dupa prea multe erori consecutive
+      HALF_OPEN — dupa cooldown, se incearca un singur apel de test
+
+    Daca rata de erori depaseste threshold-ul in fereastra de timp,
+    circuit-ul se deschide si LLM-ul e dezactivat temporar.
+    Dupa cooldown_seconds, se incearca un apel (half-open).
+    Daca reuseste => CLOSED. Daca esueaza => OPEN din nou.
+    """
+
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
+
+    def __init__(
+        self,
+        failure_threshold: int = 5,
+        window_seconds: float = 30.0,
+        cooldown_seconds: float = 30.0,
+    ):
+        self._threshold = failure_threshold
+        self._window = window_seconds
+        self._cooldown = cooldown_seconds
+
+        self._state = self.CLOSED
+        self._failures: list = []       # timestamps of recent failures
+        self._successes: int = 0
+        self._last_failure_time: float = 0.0
+        self._opened_at: float = 0.0
+        self._total_trips: int = 0      # how many times circuit opened
+        self._lock = threading.Lock()
+
+    @property
+    def state(self) -> str:
+        with self._lock:
+            if self._state == self.OPEN:
+                # Check if cooldown has elapsed => transition to HALF_OPEN
+                if time.time() - self._opened_at >= self._cooldown:
+                    self._state = self.HALF_OPEN
+                    logger.info("[CircuitBreaker] HALF_OPEN — testing one LLM call")
+            return self._state
+
+    def allow_request(self) -> bool:
+        """Returns True if the LLM call should proceed."""
+        s = self.state  # triggers state transition check
+        if s == self.CLOSED:
+            return True
+        if s == self.HALF_OPEN:
+            return True  # allow exactly one test call
+        return False  # OPEN — block
+
+    def record_success(self):
+        """Called after a successful LLM call."""
+        with self._lock:
+            self._successes += 1
+            if self._state == self.HALF_OPEN:
+                self._state = self.CLOSED
+                self._failures.clear()
+                logger.info("[CircuitBreaker] CLOSED — LLM recovered, resuming normal operation")
+
+    def record_failure(self):
+        """Called after a failed LLM call."""
+        now = time.time()
+        with self._lock:
+            self._last_failure_time = now
+            # Evict old failures outside the window
+            self._failures = [t for t in self._failures if now - t < self._window]
+            self._failures.append(now)
+
+            if self._state == self.HALF_OPEN:
+                # Test call failed — reopen
+                self._state = self.OPEN
+                self._opened_at = now
+                self._total_trips += 1
+                logger.warning("[CircuitBreaker] OPEN (again) — test call failed, LLM disabled")
+            elif self._state == self.CLOSED:
+                if len(self._failures) >= self._threshold:
+                    self._state = self.OPEN
+                    self._opened_at = now
+                    self._total_trips += 1
+                    logger.warning(
+                        f"[CircuitBreaker] OPEN — {len(self._failures)} failures in "
+                        f"{self._window}s, LLM disabled for {self._cooldown}s"
+                    )
+
+    def get_stats(self) -> dict:
+        with self._lock:
+            return {
+                "circuit_state": self._state,
+                "recent_failures": len(self._failures),
+                "failure_threshold": self._threshold,
+                "total_successes": self._successes,
+                "total_circuit_trips": self._total_trips,
+                "cooldown_seconds": self._cooldown,
+            }
+
+    def reset(self):
+        with self._lock:
+            self._state = self.CLOSED
+            self._failures.clear()
+            self._successes = 0
+            self._last_failure_time = 0.0
+            self._opened_at = 0.0
+
+
+# Global circuit breaker — shared across all vehicle brains
+_circuit_breaker = CircuitBreaker(
+    failure_threshold=5,   # 5 erori consecutive in fereastra
+    window_seconds=30.0,   # fereastra de 30s
+    cooldown_seconds=30.0, # asteapta 30s inainte de retry
+)
+
+
+def get_circuit_breaker_stats() -> dict:
+    """Returneaza statisticile circuit breaker-ului (pentru monitoring)."""
+    return _circuit_breaker.get_stats()
+
+
 # ──────────────────────── AGENT MEMORY ────────────────────────
 
 class AgentMemory:
@@ -384,6 +509,10 @@ class LLMBrain:
         if not LLM_ENABLED:
             return None
 
+        # Circuit breaker — daca LLM-ul a picat prea des, skip automat
+        if not _circuit_breaker.allow_request():
+            return self._last_decision
+
         # Rate limiting
         now = time.time()
         if now - self._last_call_time < LLM_CALL_INTERVAL:
@@ -467,6 +596,7 @@ class LLMBrain:
             }
             self._last_decision = result
             self._call_count += 1
+            _circuit_breaker.record_success()
 
             # Salveaza decizia in memorie
             self.memory.record_decision(situation_summary, result)
@@ -476,19 +606,23 @@ class LLMBrain:
 
         except json.JSONDecodeError as e:
             self._error_count += 1
+            _circuit_breaker.record_failure()
             logger.warning(f"[{self.agent_id}] LLM JSON parse error: {e}")
             return self._last_decision
         except Exception as e:
             self._error_count += 1
+            _circuit_breaker.record_failure()
             logger.warning(f"[{self.agent_id}] LLM call failed: {e}")
             return self._last_decision
 
     def get_stats(self) -> dict:
         memory_stats = self.memory.get_stats()
+        cb_stats = _circuit_breaker.get_stats()
         return {
             "llm_calls": self._call_count,
             "llm_errors": self._error_count,
             "last_decision": self._last_decision,
+            "circuit_breaker": cb_stats["circuit_state"],
             **memory_stats,
         }
 
