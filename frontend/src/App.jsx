@@ -3,12 +3,13 @@ import { useWebSocket } from './hooks/useWebSocket';
 import IntersectionMap from './components/IntersectionMap';
 import RiskAlert from './components/RiskAlert';
 import VehicleStatus from './components/VehicleStatus';
-import { ShieldCheck, ShieldAlert, Car, Settings, Activity, Navigation, ZoomIn, ZoomOut } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, Car, Settings, Activity, Navigation, ZoomIn, ZoomOut, Wine } from 'lucide-react';
 
 function App() {
   const {
     state, connected, status, agents, collisionPairs,
     startScenario, grid, toggleBackgroundTraffic, backgroundTrafficActive,
+    spawnDrunkDriver,
   } = useWebSocket();
 
   const [zoom, setZoom] = useState(0.7);
@@ -18,10 +19,13 @@ function App() {
   const trafficLightIntersections = state?.traffic_light_intersections || [];
 
   const demoAgents = Object.values(agents || {}).filter(
-    (a) => a.agent_type === 'vehicle' && !a.agent_id?.startsWith('BG_')
+    (a) => a.agent_type === 'vehicle' && !a.agent_id?.startsWith('BG_') && !a.agent_id?.startsWith('DRUNK_')
   ).length;
   const bgAgents = Object.values(agents || {}).filter(
     (a) => a.agent_type === 'vehicle' && a.agent_id?.startsWith('BG_')
+  ).length;
+  const drunkAgents = Object.values(agents || {}).filter(
+    (a) => a.agent_type === 'vehicle' && a.is_drunk
   ).length;
 
   return (
@@ -91,6 +95,7 @@ function App() {
             <div className="flex gap-3 text-xs font-mono">
               <span className="text-white">Demo: <strong>{demoAgents}</strong></span>
               <span className="text-neutral-500">BG: <strong>{bgAgents}</strong></span>
+              {drunkAgents > 0 && <span className="text-pink-400">🍺: <strong>{drunkAgents}</strong></span>}
             </div>
           </div>
 
@@ -110,6 +115,19 @@ function App() {
             <span className={`text-xs font-bold ${backgroundTrafficActive ? 'text-green-400' : 'text-neutral-500'}`}>
               {backgroundTrafficActive ? 'ON' : 'OFF'}
             </span>
+          </button>
+
+          {/* Spawn Drunk Driver Button */}
+          <button
+            onClick={spawnDrunkDriver}
+            className="w-full mb-4 transition px-4 py-2.5 rounded-lg text-sm font-medium border flex justify-between items-center group
+              bg-pink-950/20 border-pink-500/40 text-pink-300 hover:bg-pink-900/40 hover:border-pink-400/60 hover:text-pink-200"
+          >
+            <span className="flex items-center gap-2">
+              <Wine size={14} />
+              <span>Spawn Drunk Driver</span>
+            </span>
+            <span className="text-xs font-bold text-pink-400">🍺</span>
           </button>
 
           <h3 className="text-sm text-neutral-400 uppercase tracking-wider font-bold mb-3 flex items-center gap-2">
@@ -143,6 +161,7 @@ function App() {
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#ff9800] rounded-sm"></div>BRAKE</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#f44336] rounded-sm"></div>STOP</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#ff1744] rounded-sm"></div>EMERGENCY</div>
+          <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#FF69B4] rounded-sm"></div>🍺 DRUNK</div>
         </div>
       </div>
 
