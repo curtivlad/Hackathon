@@ -135,7 +135,73 @@ app.add_middleware(
 )
 
 # ─── WebSocket: conexiuni cu limita + sanitizare ────────────────────────────
+MAX_WS_CONNECTIONS = 10
 active_connections: Set[WebSocket] = set()
+
+
+def sanitize_full_state(raw: dict) -> dict:
+    """Sanitizeaza starea completa inainte de trimitere prin WebSocket."""
+    if not isinstance(raw, dict):
+        return {}
+
+    def _safe_str(val, mx=100):
+        return str(val)[:mx] if val is not None else ""
+
+    def _safe_num(val, lo=-10000, hi=10000):
+        try:
+            v = float(val)
+            return max(lo, min(hi, v))
+        except (TypeError, ValueError):
+            return 0
+
+    def _safe_agent(a):
+        if not isinstance(a, dict):
+            return a
+        return {
+            "agent_id": _safe_str(a.get("agent_id"), 30),
+            "agent_type": _safe_str(a.get("agent_type", "vehicle"), 20),
+            "x": _safe_num(a.get("x", 0)),
+            "y": _safe_num(a.get("y", 0)),
+            "speed": _safe_num(a.get("speed", 0), 0, 200),
+            "direction": _safe_num(a.get("direction", 0), 0, 360),
+            "intention": _safe_str(a.get("intention", "straight"), 20),
+            "risk_level": _safe_str(a.get("risk_level", "low"), 20),
+            "decision": _safe_str(a.get("decision", "go"), 20),
+            "reason": _safe_str(a.get("reason", ""), 50),
+            "is_emergency": bool(a.get("is_emergency", False)),
+            "llm_calls": int(a.get("llm_calls", 0)),
+            "llm_errors": int(a.get("llm_errors", 0)),
+            "memory_decisions": int(a.get("memory_decisions", 0)),
+            "near_misses": int(a.get("near_misses", 0)),
+            "v2x_alerts_received": int(a.get("v2x_alerts_received", 0)),
+            "lessons_learned": int(a.get("lessons_learned", 0)),
+        }
+
+    agents = {}
+    for k, v in raw.get("agents", {}).items():
+        agents[_safe_str(k, 30)] = _safe_agent(v)
+
+    pairs = []
+    for p in raw.get("collision_pairs", []):
+        pairs.append({
+            "agent1": _safe_str(p.get("agent1"), 30),
+            "agent2": _safe_str(p.get("agent2"), 30),
+            "risk": _safe_str(p.get("risk", "low"), 20),
+            "ttc": _safe_num(p.get("ttc", 999), 0, 9999),
+        })
+
+    return {
+        "scenario": _safe_str(raw.get("scenario"), 50),
+        "running": bool(raw.get("running", False)),
+        "agents": agents,
+        "infrastructure": raw.get("infrastructure", {}),
+        "collision_pairs": pairs,
+        "stats": raw.get("stats", {}),
+        "timestamp": _safe_num(raw.get("timestamp", 0), 0, 9999999999),
+        "grid": raw.get("grid", None),
+        "background_traffic": bool(raw.get("background_traffic", False)),
+        "traffic_light_intersections": raw.get("traffic_light_intersections", []),
+    }
 
 
 @app.websocket("/ws")
