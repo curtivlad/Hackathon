@@ -17,6 +17,8 @@ function App() {
 
   const [zoom, setZoom] = useState(0.7);
   const [minZoom, setMinZoom] = useState(0.15);
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(true);
   const handleMinZoom = useCallback((mz) => setMinZoom(mz), []);
 
   const {
@@ -94,8 +96,11 @@ function App() {
         </div>
       </div>
 
-      <div className="fixed top-24 left-4 z-20 w-80 pointer-events-auto">
-        <div className="rounded-2xl border border-white/10 p-5"
+      <div
+        className="fixed top-24 left-0 z-20 pointer-events-auto flex items-start"
+        style={{ transition: 'transform 0.35s cubic-bezier(0.4,0,0.2,1)', transform: leftOpen ? 'translateX(0)' : 'translateX(calc(-100% + 32px))' }}
+      >
+        <div className="w-80 ml-4 rounded-2xl border border-white/10 p-5"
           style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}>
 
           <div className="flex items-center justify-between mb-4">
@@ -152,10 +157,27 @@ function App() {
             <ScenarioBtn label="Drunk Driver" onClick={() => startScenario('drunk_driver')} hoverColor="pink" />
           </div>
         </div>
+        <button
+          onClick={() => setLeftOpen(prev => !prev)}
+          className="mt-2 p-1.5 rounded-r-lg border border-l-0 border-white/10 text-neutral-400 hover:text-white hover:bg-white/10 transition"
+          style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(16px)' }}
+        >
+          {leftOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+        </button>
       </div>
 
-      <div className="fixed top-24 right-4 z-20 w-80 max-h-[calc(100vh-7rem)] pointer-events-auto">
-        <div className="rounded-2xl border border-white/10 p-5 max-h-[calc(100vh-7rem)] overflow-y-auto"
+      <div
+        className="fixed top-24 right-0 z-20 max-h-[calc(100vh-7rem)] pointer-events-auto flex items-start"
+        style={{ transition: 'transform 0.35s cubic-bezier(0.4,0,0.2,1)', transform: rightOpen ? 'translateX(0)' : 'translateX(calc(100% - 32px))' }}
+      >
+        <button
+          onClick={() => setRightOpen(prev => !prev)}
+          className="mt-2 p-1.5 rounded-l-lg border border-r-0 border-white/10 text-neutral-400 hover:text-white hover:bg-white/10 transition"
+          style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(16px)' }}
+        >
+          {rightOpen ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+        </button>
+        <div className="w-80 mr-4 rounded-2xl border border-white/10 p-5 max-h-[calc(100vh-7rem)] overflow-y-auto"
           style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}>
           <VehicleStatus agents={agents} infrastructure={state?.infrastructure || {}} />
         </div>
@@ -166,6 +188,7 @@ function App() {
           style={{ background: 'rgba(10,10,10,0.65)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#00e676] rounded-sm"></div>GO</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#ffeb3b] rounded-sm"></div>YIELD</div>
+          <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#ff9800] rounded-sm"></div>BRAKE</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#f44336] rounded-sm"></div>STOP</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#ff1744] rounded-sm"></div>EMERGENCY</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#FF69B4] rounded-sm"></div>DRUNK</div>

@@ -15,7 +15,6 @@ export default function V2XLog() {
         const data = await res.json();
         setHistory(data.history || []);
       } catch {
-        // silently fail
       }
     }, 1000);
     return () => clearInterval(interval);
@@ -50,7 +49,6 @@ export default function V2XLog() {
     <div className="rounded-2xl border border-white/10 overflow-hidden"
       style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(16px)' }}>
 
-      {/* Header — click to expand/collapse */}
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition"
@@ -69,7 +67,6 @@ export default function V2XLog() {
         </div>
       </button>
 
-      {/* Log entries */}
       {expanded && (
         <div
           ref={scrollRef}
@@ -94,7 +91,7 @@ export default function V2XLog() {
                     minWidth: "70px",
                   }}
                 >
-                  {msg.is_emergency ? "🚑 " : ""}{msg.agent_id}
+                  {msg.is_emergency ? "[EMR] " : ""}{msg.agent_id}
                 </span>
                 <span className="font-mono text-neutral-500" style={{ fontSize: "9px" }}>
                   ({msg.x?.toFixed(0)},{msg.y?.toFixed(0)})
@@ -113,7 +110,7 @@ export default function V2XLog() {
                     className="font-mono font-bold"
                     style={{ fontSize: "9px", color: riskColor(msg.risk_level) }}
                   >
-                    ⚠ {msg.risk_level?.toUpperCase()}
+                    {msg.risk_level?.toUpperCase()}
                   </span>
                 )}
               </div>
