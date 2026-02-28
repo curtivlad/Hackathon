@@ -1,13 +1,3 @@
-/**
- * useKeyboardShortcuts.js — Keyboard shortcuts pentru control rapid.
- *
- * Shortcuts:
- *   1-6  — Start scenarii
- *   S    — Stop simulare
- *   R    — Restart simulare
- *   B    — Toggle background traffic
- */
-
 import { useEffect } from "react";
 
 export function useKeyboardShortcuts({
@@ -18,7 +8,6 @@ export function useKeyboardShortcuts({
 }) {
   useEffect(() => {
     const handler = (e) => {
-      // Ignore when typing in inputs
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
 
       switch (e.key) {
