@@ -39,6 +39,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from simulation import simulation
 from v2x_channel import channel
 from background_traffic import bg_traffic, get_grid_info
+from v2x_security import MAX_WS_CONNECTIONS, sanitize_full_state
 
 app = FastAPI(title="V2X Intersection Safety Agent")
 
