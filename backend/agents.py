@@ -12,6 +12,7 @@ Cerinte indeplinite:
 
 import math
 import time
+import random
 import threading
 import logging
 from v2x_channel import V2XMessage, V2XBroadcast, channel
@@ -30,13 +31,22 @@ DECELERATION = 6.0
 UPDATE_INTERVAL = 0.1
 STOP_LINE = 35.0
 
+# Drunk driver erratic behavior parameters
+DRUNK_SWERVE_MAX = 12.0        # max swerve angle in degrees
+DRUNK_SWERVE_PERIOD = 1.5      # seconds per swerve oscillation
+DRUNK_RANDOM_STOP_CHANCE = 0.005   # per tick chance to randomly stop
+DRUNK_RANDOM_ACCEL_CHANCE = 0.02   # per tick chance to randomly accelerate
+DRUNK_IGNORE_RED_CHANCE = 0.7      # chance to ignore red light
+DRUNK_RANDOM_BRAKE_CHANCE = 0.01   # per tick chance to randomly brake hard
+DRUNK_SPEED_VARIANCE = 5.0        # random speed variation
+
 
 class VehicleAgent:
 
     def __init__(self, agent_id, start_x, start_y, direction,
                  initial_speed=10.0, intention="straight",
                  is_emergency=False, target_speed=10.0,
-                 waypoints=None):
+                 waypoints=None, is_drunk=False):
         self.agent_id = agent_id
         self.x = start_x
         self.y = start_y
@@ -45,6 +55,7 @@ class VehicleAgent:
         self.target_speed = target_speed
         self.intention = intention
         self.is_emergency = is_emergency
+        self.is_drunk = is_drunk
         self.decision = "go"
         self.risk_level = "low"
         self.reason = "clear"
@@ -160,6 +171,7 @@ class VehicleAgent:
                 "direction": msg.direction,
                 "intention": msg.intention,
                 "is_emergency": msg.is_emergency,
+                "is_drunk": msg.is_drunk,
                 "dist": dist,
                 "ttc": ttc_str,
                 "decision": msg.decision,  # ce decizie a luat celalalt agent
@@ -171,8 +183,9 @@ class VehicleAgent:
     def _make_decision(self):
         """
         Logica de decizie:
-        1. Incearca LLM (daca e activat si API key valid) — include memorie + V2X
-        2. Fallback ADAPTIV bazat pe memorie daca LLM nu e disponibil
+        1. Daca e sofer beat — comportament erratic (ignora reguli)
+        2. Incearca LLM (daca e activat si API key valid) — include memorie + V2X
+        3. Fallback ADAPTIV bazat pe memorie daca LLM nu e disponibil
         """
         others = channel.get_other_agents(self.agent_id)
 
@@ -184,6 +197,11 @@ class VehicleAgent:
 
         # Broadcast V2X alerts based on current state
         self._send_situational_v2x_alerts()
+
+        # ── Drunk driver: erratic behavior ──
+        if self.is_drunk:
+            self._make_decision_drunk()
+            return
 
         # ── Try LLM first ──
         if LLM_ENABLED:
@@ -252,6 +270,13 @@ class VehicleAgent:
                 f"Emergency vehicle approaching at speed {self.speed:.0f}m/s heading {self.direction}°"
             )
 
+        # Drunk driver broadcast — warn others about erratic behavior
+        if self.is_drunk:
+            self._broadcast_v2x_alert(
+                "erratic_driving",
+                f"DRUNK DRIVER! Erratic vehicle at ({self.x:.0f},{self.y:.0f}) speed {self.speed:.0f}m/s heading {self.direction:.0f}°"
+            )
+
         # Braking alert
         if self.decision in ("brake", "stop") and self.speed > 2.0:
             self._broadcast_v2x_alert(
@@ -272,6 +297,68 @@ class VehicleAgent:
                 "near_miss",
                 f"High risk detected! I'm at ({self.x:.0f},{self.y:.0f}) risk={self.risk_level}"
             )
+
+    def _make_decision_drunk(self):
+        """
+        Comportament ERRATIC — sofer beat.
+        Ignora semafoare, accelereaza/franeaza aleator, face swerve.
+        """
+        # Swerve sinusoidal — oscilatie de directie
+        t = time.time()
+        swerve_angle = DRUNK_SWERVE_MAX * math.sin(2 * math.pi * t / DRUNK_SWERVE_PERIOD)
+        # Add some random jitter
+        swerve_angle += random.uniform(-3, 3)
+
+        # Apply swerve to direction (but remember original for waypoint nav)
+        if not hasattr(self, '_drunk_base_direction'):
+            self._drunk_base_direction = self.direction
+        # Slowly drift the base direction randomly
+        self._drunk_base_direction += random.uniform(-0.5, 0.5)
+        self.direction = (self._drunk_base_direction + swerve_angle) % 360
+
+        # Random erratic actions
+        roll = random.random()
+
+        if roll < DRUNK_RANDOM_STOP_CHANCE:
+            # Random stop for no reason
+            self.decision = "stop"
+            self.reason = "drunk_random_stop"
+            self.recommended_speed = 0.0
+            logger.info(f"[{self.agent_id}] DRUNK: stopped randomly!")
+        elif roll < DRUNK_RANDOM_STOP_CHANCE + DRUNK_RANDOM_BRAKE_CHANCE:
+            # Random hard brake
+            self.decision = "brake"
+            self.reason = "drunk_random_brake"
+            self.recommended_speed = max(0.0, self.speed - random.uniform(3, 6))
+            logger.info(f"[{self.agent_id}] DRUNK: braking randomly!")
+        elif roll < DRUNK_RANDOM_STOP_CHANCE + DRUNK_RANDOM_BRAKE_CHANCE + DRUNK_RANDOM_ACCEL_CHANCE:
+            # Random acceleration burst
+            self.decision = "go"
+            self.reason = "drunk_acceleration"
+            self.recommended_speed = min(MAX_SPEED, self.target_speed + random.uniform(2, DRUNK_SPEED_VARIANCE))
+            logger.info(f"[{self.agent_id}] DRUNK: accelerating erratically!")
+        else:
+            # "Normal" drunk driving — slightly erratic speed
+            self.decision = "go"
+            self.reason = "drunk_driving"
+            self.recommended_speed = self.target_speed + random.uniform(-2, 3)
+            self.recommended_speed = max(2.0, min(MAX_SPEED, self.recommended_speed))
+
+        # Ignore red lights most of the time
+        traffic_light = self._get_traffic_light_str()
+        if traffic_light == "red" and not self._entered_intersection:
+            if random.random() < DRUNK_IGNORE_RED_CHANCE:
+                # Drunk driver IGNORES red light
+                self.decision = "go"
+                self.reason = "drunk_ignores_red"
+                self.recommended_speed = max(self.recommended_speed, self.target_speed * 0.8)
+                logger.warning(f"[{self.agent_id}] DRUNK: IGNORING RED LIGHT!")
+            # else: occasionally they do stop at red (30% chance)
+
+        # If in intersection, keep going (even drunk drivers usually continue)
+        if self._entered_intersection:
+            self.decision = "go"
+            self.recommended_speed = max(self.recommended_speed, self.target_speed * 0.6)
 
     def _make_decision_adaptive_fallback(self):
         """
@@ -346,6 +433,23 @@ class VehicleAgent:
                     self.decision = "yield"
                     self.reason = "v2x_emergency_nearby"
                     break
+            elif alert.alert_type == "erratic_driving":
+                # Sofer beat detectat prin V2X — incetineste si cedeaza
+                if self.decision == "go":
+                    nearby = self._get_nearby_vehicles_info()
+                    for o in nearby:
+                        if o["id"] == alert.from_id:
+                            ttc_str = o.get("ttc", "inf")
+                            try:
+                                ttc_val = float(ttc_str.replace("s", "")) if isinstance(ttc_str, str) else float(ttc_str)
+                            except (ValueError, AttributeError):
+                                ttc_val = float("inf")
+                            if ttc_val < 8.0:
+                                self.decision = "brake"
+                                self.reason = "v2x_drunk_driver_nearby"
+                                self.recommended_speed = max(0.0, self.speed * 0.3)
+                                logger.info(f"[{self.agent_id}] Braking: drunk driver {alert.from_id} nearby!")
+                            break
             elif alert.alert_type == "entering_intersection":
                 # Alt vehicul e deja in intersectie
                 if not self._entered_intersection and self.decision == "go":
@@ -407,7 +511,7 @@ class VehicleAgent:
         new_y = self.y + self.speed * math.cos(rad) * UPDATE_INTERVAL
 
         # Opreste-te la linia de stop daca nu ai voie sa treci
-        if self.decision != "go" and not self.is_emergency and not self._entered_intersection:
+        if self.decision != "go" and not self.is_emergency and not self.is_drunk and not self._entered_intersection:
             if self._moves_on_y():
                 if abs(self.y) >= STOP_LINE and abs(new_y) < STOP_LINE:
                     new_y = STOP_LINE if self.y > 0 else -STOP_LINE
@@ -443,6 +547,7 @@ class VehicleAgent:
             direction=self.direction, intention=self.intention,
             risk_level=self.risk_level, decision=self.decision,
             is_emergency=self.is_emergency,
+            is_drunk=self.is_drunk,
         )
 
     # ──────────────────────── Lifecycle ────────────────────────
@@ -594,6 +699,12 @@ class VehicleAgent:
                 self.reason = "emergency_nearby"
                 break
 
+            # Drunk driver nearby — brake and yield
+            if other_msg.is_drunk and ttc < 10.0:
+                dominated = True
+                self.reason = "drunk_driver_nearby"
+                break
+
             # Very close and converging — check who yields
             if ttc < 5.0:
                 # Simple priority: the one with lower agent_id goes first
@@ -648,6 +759,65 @@ class VehicleAgent:
             self.reason = "clear"
             self.recommended_speed = self.target_speed
 
+    def _bg_drunk_erratic_decision(self):
+        """Erratic decision making for drunk driver on the grid (waypoint-based)."""
+        # Broadcast erratic driving alert via V2X
+        self._broadcast_v2x_alert(
+            "erratic_driving",
+            f"DRUNK DRIVER! Erratic vehicle at ({self.x:.0f},{self.y:.0f}) speed {self.speed:.0f}m/s heading {self.direction:.0f}°"
+        )
+
+        # Check risk for V2X awareness (others can see us)
+        others = channel.get_other_agents(self.agent_id)
+        my_msg = self._build_message()
+        self.risk_level = "low"
+        for other_id, other_msg in others.items():
+            if other_msg.agent_type != "vehicle":
+                continue
+            d = distance(self.x, self.y, other_msg.x, other_msg.y)
+            if d > 150:
+                continue
+            ttc = compute_ttc(my_msg, other_msg)
+            if ttc < 3.0:
+                self.risk_level = "collision"
+            elif ttc < 6.0 and self.risk_level != "collision":
+                self.risk_level = "high"
+
+        # Random erratic actions
+        roll = random.random()
+
+        if roll < DRUNK_RANDOM_STOP_CHANCE:
+            self.decision = "stop"
+            self.reason = "drunk_random_stop"
+            self.recommended_speed = 0.0
+        elif roll < DRUNK_RANDOM_STOP_CHANCE + DRUNK_RANDOM_BRAKE_CHANCE:
+            self.decision = "brake"
+            self.reason = "drunk_random_brake"
+            self.recommended_speed = max(0.0, self.speed - random.uniform(3, 6))
+        elif roll < DRUNK_RANDOM_STOP_CHANCE + DRUNK_RANDOM_BRAKE_CHANCE + DRUNK_RANDOM_ACCEL_CHANCE:
+            self.decision = "go"
+            self.reason = "drunk_acceleration"
+            self.recommended_speed = min(MAX_SPEED, self.target_speed + random.uniform(2, DRUNK_SPEED_VARIANCE))
+        else:
+            self.decision = "go"
+            self.reason = "drunk_driving"
+            self.recommended_speed = self.target_speed + random.uniform(-2, 3)
+            self.recommended_speed = max(2.0, min(MAX_SPEED, self.recommended_speed))
+
+        # Check grid traffic lights — IGNORE red lights most of the time
+        inter, inter_dist = self._nearest_intersection()
+        if inter and inter_dist < 100:
+            from background_traffic import bg_traffic
+            tl = bg_traffic.get_traffic_light_for(inter[0], inter[1])
+            if tl is not None:
+                my_axis = self._get_movement_axis()
+                if not tl.is_green_for_axis(my_axis):
+                    if random.random() < DRUNK_IGNORE_RED_CHANCE:
+                        # IGNORE red light!
+                        self.decision = "go"
+                        self.reason = "drunk_ignores_red"
+                        self.recommended_speed = max(self.recommended_speed, self.target_speed * 0.8)
+
     def _run_loop_waypoint(self):
         """Intelligent waypoint-following loop for background traffic vehicles."""
         yield_counter = 0  # anti-deadlock counter
@@ -670,10 +840,22 @@ class VehicleAgent:
 
             # Update direction toward waypoint
             if dist > 0.1:
-                self.direction = math.degrees(math.atan2(dx, dy)) % 360
+                base_dir = math.degrees(math.atan2(dx, dy)) % 360
+                if self.is_drunk:
+                    # Drunk swerving — sinusoidal oscillation + random jitter
+                    t = time.time()
+                    swerve = DRUNK_SWERVE_MAX * math.sin(2 * math.pi * t / DRUNK_SWERVE_PERIOD)
+                    swerve += random.uniform(-4, 4)
+                    self.direction = (base_dir + swerve) % 360
+                else:
+                    self.direction = base_dir
 
             # ── Intelligent decision making ──
-            self._bg_compute_risk_and_decision()
+            if self.is_drunk:
+                # Drunk driver: erratic decisions instead of normal logic
+                self._bg_drunk_erratic_decision()
+            else:
+                self._bg_compute_risk_and_decision()
 
             # Anti-deadlock: if yielding too long, force go
             if self.decision in ("yield", "stop"):
@@ -743,6 +925,7 @@ class VehicleAgent:
             "intention": self.intention, "risk_level": self.risk_level,
             "decision": self.decision, "reason": self.reason,
             "is_emergency": self.is_emergency,
+            "is_drunk": self.is_drunk,
         }
         # Include LLM + memory stats
         llm_stats = self._llm_brain.get_stats()

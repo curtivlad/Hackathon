@@ -94,7 +94,8 @@ def validate_message(agent_id: str, agent_type: str,
                      direction: float, intention: str,
                      risk_level: str, decision: str,
                      timestamp: float,
-                     is_emergency: bool) -> Tuple[bool, dict, list]:
+                     is_emergency: bool,
+                     is_drunk: bool = False) -> Tuple[bool, dict, list]:
     """
     Valideaza + sanitizeaza un mesaj V2X.
     Returneaza (valid, sanitized_dict, errors_list).
@@ -158,6 +159,7 @@ def validate_message(agent_id: str, agent_type: str,
         s["timestamp"] = timestamp
 
     s["is_emergency"] = bool(is_emergency)
+    s["is_drunk"] = bool(is_drunk)
 
     return (len(errors) == 0, s, errors)
 
@@ -247,6 +249,7 @@ def sanitize_agent(raw: dict) -> dict:
         "risk_level":   raw.get("risk_level") if raw.get("risk_level") in VALID_RISKS else "low",
         "decision":     _safe_str(raw.get("decision")),
         "is_emergency": bool(raw.get("is_emergency")),
+        "is_drunk":     bool(raw.get("is_drunk")),
         "timestamp":    round(_safe_num(raw.get("timestamp"), time.time()), 1),
         # campuri non-sensibile — stats
         **{k: raw[k] for k in ("reason", "llm_calls", "llm_errors",

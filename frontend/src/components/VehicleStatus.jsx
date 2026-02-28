@@ -15,13 +15,13 @@ const RISK_COLORS = {
 };
 
 function VehicleCard({ agent }) {
-  const decisionColor = DECISION_COLORS[agent.decision] || "#aaa";
+  const decisionColor = agent.is_drunk ? "#FF69B4" : (DECISION_COLORS[agent.decision] || "#aaa");
   const riskColor = RISK_COLORS[agent.risk_level] || "#aaa";
   const speedKmh = (agent.speed * 3.6).toFixed(1);
 
   return (
     <div style={{
-      background: "#1a1a1a",
+      background: agent.is_drunk ? "#1a0a14" : "#1a1a1a",
       border: `1px solid ${decisionColor}44`,
       borderLeft: `4px solid ${decisionColor}`,
       borderRadius: "8px",
@@ -29,8 +29,8 @@ function VehicleCard({ agent }) {
       marginBottom: "8px",
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ color: "#fff", fontWeight: "bold", fontFamily: "monospace" }}>
-          {agent.is_emergency ? "[EMR] " : ""}{agent.agent_id}
+        <span style={{ color: agent.is_drunk ? "#FF69B4" : "#fff", fontWeight: "bold", fontFamily: "monospace" }}>
+          {agent.is_drunk ? "🍺 [DRUNK] " : ""}{agent.is_emergency ? "[EMR] " : ""}{agent.agent_id}
         </span>
         <span style={{
           background: decisionColor + "33",
@@ -88,13 +88,13 @@ function Stat({ label, value, valueColor }) {
 }
 
 function VehicleCardCompact({ agent }) {
-  const decisionColor = DECISION_COLORS[agent.decision] || "#aaa";
+  const decisionColor = agent.is_drunk ? "#FF69B4" : (DECISION_COLORS[agent.decision] || "#aaa");
   const riskColor = RISK_COLORS[agent.risk_level] || "#aaa";
   const speedKmh = (agent.speed * 3.6).toFixed(0);
 
   return (
     <div style={{
-      background: "#141414",
+      background: agent.is_drunk ? "#1a0a14" : "#141414",
       border: `1px solid ${decisionColor}33`,
       borderLeft: `3px solid ${decisionColor}`,
       borderRadius: "6px",
@@ -104,8 +104,8 @@ function VehicleCardCompact({ agent }) {
       justifyContent: "space-between",
       alignItems: "center",
     }}>
-      <span style={{ color: "#aaa", fontFamily: "monospace", fontSize: "11px", fontWeight: "bold" }}>
-        {agent.is_emergency ? "🚑 " : ""}{agent.agent_id}
+      <span style={{ color: agent.is_drunk ? "#FF69B4" : "#aaa", fontFamily: "monospace", fontSize: "11px", fontWeight: "bold" }}>
+        {agent.is_drunk ? "🍺 " : ""}{agent.is_emergency ? "🚑 " : ""}{agent.agent_id}
       </span>
       <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
         <span style={{ color: "#777", fontFamily: "monospace", fontSize: "10px" }}>
@@ -140,10 +140,13 @@ function VehicleCardCompact({ agent }) {
 
 export default function VehicleStatus({ agents = {}, infrastructure = {} }) {
   const vehicles = Object.values(agents).filter(
-    a => a.agent_type === "vehicle" && !a.agent_id?.startsWith("BG_")
+    a => a.agent_type === "vehicle" && !a.agent_id?.startsWith("BG_") && !a.is_drunk
+  );
+  const drunkVehicles = Object.values(agents).filter(
+    a => a.agent_type === "vehicle" && a.is_drunk
   );
   const bgVehicles = Object.values(agents).filter(
-    a => a.agent_type === "vehicle" && a.agent_id?.startsWith("BG_")
+    a => a.agent_type === "vehicle" && a.agent_id?.startsWith("BG_") && !a.is_drunk
   );
 
   return (
@@ -158,6 +161,15 @@ export default function VehicleStatus({ agents = {}, infrastructure = {} }) {
         </div>
       ) : (
         vehicles.map(v => <VehicleCard key={v.agent_id} agent={v} />)
+      )}
+
+      {drunkVehicles.length > 0 && (
+        <>
+          <h3 style={{ color: "#FF69B4", fontSize: "11px", fontFamily: "monospace", marginTop: "16px", marginBottom: "8px", letterSpacing: "2px" }}>
+            🍺 DRUNK DRIVERS ({drunkVehicles.length})
+          </h3>
+          {drunkVehicles.map(v => <VehicleCard key={v.agent_id} agent={v} />)}
+        </>
       )}
 
       {bgVehicles.length > 0 && (

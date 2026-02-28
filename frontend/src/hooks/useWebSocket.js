@@ -76,6 +76,10 @@ export function useWebSocket() {
     await fetch(`${API_URL}/background-traffic/${endpoint}`, { method: "POST", headers: authHeaders });
   };
 
+  const spawnDrunkDriver = async () => {
+    await fetch(`${API_URL}/simulation/spawn-drunk`, { method: "POST", headers: authHeaders });
+  };
+
   const agents = state?.agents || {};
   const collisionPairs = state?.collision_pairs || [];
   const grid = state?.grid || null;
@@ -88,6 +92,6 @@ export function useWebSocket() {
   return {
     state, connected, error, agents, status, collisionPairs,
     startScenario, stopSimulation, restartSimulation,
-    toggleBackgroundTraffic, grid, backgroundTrafficActive,
+    toggleBackgroundTraffic, spawnDrunkDriver, grid, backgroundTrafficActive,
   };
 }

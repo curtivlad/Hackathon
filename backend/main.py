@@ -268,6 +268,50 @@ def get_channel():
     return channel.to_dict()
 
 
+@app.post("/simulation/spawn-drunk", dependencies=[Depends(verify_token), Depends(rate_limit)])
+def spawn_drunk_driver():
+    """Spawn a drunk driver vehicle on a random route through the grid."""
+    import random
+    from agents import VehicleAgent
+    from background_traffic import _build_route, _ALL_ROUTE_KEYS
+
+    # Pick a random route
+    route_key = random.choice(_ALL_ROUTE_KEYS)
+    waypoints, direction = _build_route(route_key)
+    if len(waypoints) < 2:
+        return {"error": "Could not find a valid route"}
+
+    start_x, start_y = waypoints[0]
+    speed = random.uniform(8.0, 12.0)
+
+    # Generate unique drunk driver ID
+    if not hasattr(spawn_drunk_driver, '_counter'):
+        spawn_drunk_driver._counter = 0
+    spawn_drunk_driver._counter += 1
+    agent_id = f"DRUNK_{spawn_drunk_driver._counter:03d}"
+
+    vehicle = VehicleAgent(
+        agent_id=agent_id,
+        start_x=start_x,
+        start_y=start_y,
+        direction=direction,
+        initial_speed=speed,
+        target_speed=speed,
+        intention="straight",
+        is_emergency=False,
+        waypoints=waypoints[1:],
+        is_drunk=True,
+    )
+
+    # Add to simulation vehicles list so it shows up
+    simulation.vehicles.append(vehicle)
+    simulation.stats["total_vehicles"] += 1
+    vehicle.start()
+
+    logger.info(f"[DRUNK] Spawned {agent_id} at ({start_x:.0f}, {start_y:.0f}) dir={direction}")
+    return {"status": "spawned", "agent_id": agent_id, "x": start_x, "y": start_y, "direction": direction}
+
+
 @app.post("/background-traffic/start", dependencies=[Depends(verify_token), Depends(rate_limit)])
 def start_bg_traffic():
     bg_traffic.start()
