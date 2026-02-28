@@ -54,7 +54,7 @@ def root():
 
 @app.post("/simulation/start/{scenario}")
 def start_simulation(scenario: str):
-    valid = ["blind_intersection", "emergency_vehicle", "multi_vehicle"]
+    valid = ["blind_intersection", "emergency_vehicle", "emergency_vehicle_no_lights", "right_of_way", "multi_vehicle", "multi_vehicle_traffic_light"]
     if scenario not in valid:
         return {"error": f"Unknown scenario. Use one of: {valid}"}
     simulation.start(scenario)
@@ -83,6 +83,24 @@ def list_scenarios():
     return {
         "scenarios": [
             {
+                "id": "right_of_way",
+                "name": "3 Vehicule — Prioritate de Dreapta",
+                "description": "3 vehicule din 3 directii, fara semafor. Negociere prin regula prioritatii de dreapta.",
+                "vehicles": 3,
+            },
+            {
+                "id": "multi_vehicle",
+                "name": "4 Vehicule — Prioritate de Dreapta (Fara Semafor)",
+                "description": "4 vehicule din toate directiile, fara semafor. Negociere prin regula prioritatii de dreapta.",
+                "vehicles": 4,
+            },
+            {
+                "id": "multi_vehicle_traffic_light",
+                "name": "4 Vehicule — Cu Semafor",
+                "description": "4 vehicule din toate directiile cu semafor activ.",
+                "vehicles": 4,
+            },
+            {
                 "id": "blind_intersection",
                 "name": "Intersectie cu vizibilitate redusa",
                 "description": "2 vehicule din directii perpendiculare. B cedeaza lui A.",
@@ -90,15 +108,15 @@ def list_scenarios():
             },
             {
                 "id": "emergency_vehicle",
-                "name": "Vehicul de urgenta",
-                "description": "Ambulanta vs vehicul normal. Ambulanta are prioritate.",
+                "name": "Ambulanta — Cu Semafor",
+                "description": "Ambulanta vs vehicul normal cu semafor activ. Semaforul se adapteaza la urgenta.",
                 "vehicles": 2,
             },
             {
-                "id": "multi_vehicle",
-                "name": "4 vehicule simultan",
-                "description": "Toate directiile active in acelasi timp.",
-                "vehicles": 4,
+                "id": "emergency_vehicle_no_lights",
+                "name": "Ambulanta — Fara Semafor",
+                "description": "Ambulanta vs vehicul normal fara semafor. Prioritate negociata prin V2X.",
+                "vehicles": 2,
             },
         ]
     }

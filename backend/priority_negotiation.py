@@ -37,11 +37,19 @@ def get_approach_direction(agent: V2XMessage) -> str:
 
 
 def is_on_right(my_direction: str, other_direction: str) -> bool:
+    """Verifica daca celalalt vehicul vine din dreapta mea.
+
+    Perspectiva soferului:
+    - Vin din nord (merg spre sud) => dreapta mea e vestul
+    - Vin din est  (merg spre vest) => dreapta mea e nordul
+    - Vin din sud  (merg spre nord) => dreapta mea e estul
+    - Vin din vest (merg spre est)  => dreapta mea e sudul
+    """
     right_map = {
-        "north": "east",
-        "east":  "south",
-        "south": "west",
-        "west":  "north",
+        "north": "west",
+        "east":  "north",
+        "south": "east",
+        "west":  "south",
     }
     return right_map.get(my_direction) == other_direction
 
