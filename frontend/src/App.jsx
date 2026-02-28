@@ -38,10 +38,10 @@ function App() {
   const trafficLightIntersections = state?.traffic_light_intersections || [];
 
   const demoAgents = Object.values(agents || {}).filter(
-    (a) => a.agent_type === 'vehicle' && !a.agent_id?.startsWith('BG_') && !a.agent_id?.startsWith('DRUNK_')
+    (a) => a.agent_type === 'vehicle' && !a.agent_id?.startsWith('BG_') && !a.agent_id?.startsWith('AMBULANCE_') && !a.agent_id?.startsWith('DRUNK_')
   ).length;
   const bgAgents = Object.values(agents || {}).filter(
-    (a) => a.agent_type === 'vehicle' && a.agent_id?.startsWith('BG_')
+    (a) => a.agent_type === 'vehicle' && (a.agent_id?.startsWith('BG_') || a.agent_id?.startsWith('AMBULANCE_'))
   ).length;
   const drunkAgents = Object.values(agents || {}).filter(
     (a) => a.agent_type === 'vehicle' && a.is_drunk

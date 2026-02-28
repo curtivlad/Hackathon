@@ -319,6 +319,7 @@ class SimulationManager:
         collision_pairs = [
             p for p in all_collision_pairs
             if not (p["agent1"].startswith("BG_") and p["agent2"].startswith("BG_"))
+            and not (p["agent1"].startswith("AMBULANCE_") and p["agent2"].startswith("AMBULANCE_"))
         ]
         use_tl = self._use_traffic_light
         return {

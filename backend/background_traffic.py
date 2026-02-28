@@ -445,7 +445,10 @@ class BackgroundTrafficManager:
             is_emergency = random.random() < EMERGENCY_CHANCE
 
             self._counter += 1
-            agent_id = f"BG_{self._counter:03d}"
+            if is_emergency:
+                agent_id = f"AMBULANCE_{self._counter:03d}"
+            else:
+                agent_id = f"BG_{self._counter:03d}"
 
             # Build initial waypoints from this intersection to the edge
             initial_wps = _build_initial_route_from_intersection(ix, iy, direction)
