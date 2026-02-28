@@ -28,7 +28,7 @@ class VehicleAgent:
     Se misca pe o traiectorie, comunica prin V2X si evita coliziunile.
     """
 
-    def _init_(
+    def __init__(
         self,
         agent_id: str,
         start_x: float,
@@ -176,7 +176,7 @@ class InfrastructureAgent:
 
     PHASE_DURATION = 10.0   # secunde per faza semafor
 
-    def _init_(self):
+    def __init__(self):
         self.agent_id = "infrastructure_traffic_light"
         self.phase = "NS_GREEN"   # NS_GREEN sau EW_GREEN
         self.phase_timer = 0.0
