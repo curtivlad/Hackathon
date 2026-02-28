@@ -62,6 +62,15 @@ function VehicleCard({ agent }) {
             <Stat label="Motiv" value={agent.reason} />
           </div>
         )}
+        {(agent.llm_calls !== undefined && agent.llm_calls > 0) && (
+          <div style={{ gridColumn: "span 2" }}>
+            <Stat
+              label="🧠 AI Brain"
+              value={`${agent.llm_calls} decizii LLM`}
+              valueColor="#7c4dff"
+            />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 """
 simulation.py — Scenarii de simulare si ciclul de viata al agentilor.
+Vehiculele circula pe banda din DREAPTA (reguli europene).
 """
 
 import time
@@ -10,6 +11,8 @@ from infrastructure_agent import InfrastructureAgent
 from v2x_channel import channel
 from collision_detector import get_collision_pairs
 
+# Lane offset: distanta de la centrul drumului la centrul benzii
+# In Europa, se circula pe dreapta => offset pozitiv = banda dreapta
 LANE_OFFSET = 10.0
 
 
@@ -29,17 +32,38 @@ class SimulationManager:
         self._monitor_thread = None
         self._use_traffic_light = False
 
+    # ──────────────────────── European Right-Hand Driving ────────────────────────
+    #
+    # Coordinate system:  Y+ = North, X+ = East, center = (0,0)
+    #
+    # Vehicle heading SOUTH (dir=180): comes from North (y=+120), drives on LEFT side of road
+    #   => x should be POSITIVE (right side when facing south) => x = +LANE_OFFSET
+    #   Wait - let's think again from the driver's perspective:
+    #
+    # European right-hand traffic means:
+    #   - Heading South (180°): driver is on the RIGHT side of the road = positive X
+    #   - Heading North (0°): driver is on the RIGHT side of the road = negative X
+    #   - Heading West (270°): driver is on the RIGHT side = positive Y
+    #   - Heading East (90°): driver is on the RIGHT side = negative Y
+    #
+    # So for a 2-lane road (one lane each direction):
+    #   NS road: Northbound on x=-OFFSET, Southbound on x=+OFFSET
+    #   EW road: Eastbound on y=-OFFSET, Westbound on y=+OFFSET
+
     def scenario_blind_intersection(self):
+        """2 vehicule din directii perpendiculare, fara semafor."""
         self._clear_vehicles()
+        # VH_A: vine din Nord, merge spre Sud (dir=180) => x=+OFFSET, start y=+120
         vehicle_a = VehicleAgent(
             agent_id="VH_A",
-            start_x=-LANE_OFFSET,
+            start_x=LANE_OFFSET,
             start_y=120.0,
             direction=180.0,
             initial_speed=11.0,
             target_speed=11.0,
             intention="straight",
         )
+        # VH_B: vine din Est, merge spre Vest (dir=270) => y=+OFFSET, start x=+120
         vehicle_b = VehicleAgent(
             agent_id="VH_B",
             start_x=120.0,
@@ -53,7 +77,9 @@ class SimulationManager:
         self.active_scenario = "blind_intersection"
 
     def scenario_emergency_vehicle(self):
+        """Ambulanta vs vehicul normal cu semafor activ."""
         self._clear_vehicles()
+        # Ambulanta: vine din Vest, merge spre Est (dir=90) => y=-OFFSET, start x=-120
         ambulance = VehicleAgent(
             agent_id="AMBULANCE",
             start_x=-120.0,
@@ -64,9 +90,10 @@ class SimulationManager:
             intention="straight",
             is_emergency=True,
         )
+        # VH_C: vine din Sud, merge spre Nord (dir=0) => x=-OFFSET, start y=-120
         normal_car = VehicleAgent(
             agent_id="VH_C",
-            start_x=LANE_OFFSET,
+            start_x=-LANE_OFFSET,
             start_y=-120.0,
             direction=0.0,
             initial_speed=10.0,
@@ -80,9 +107,12 @@ class SimulationManager:
         """3 vehicule — prioritate de dreapta clasica, fara semafor."""
         self._clear_vehicles()
         configs = [
-            ("VH_N", -LANE_OFFSET,  120.0, 180.0, 10.0, "straight"),
+            # VH_N: vine din Nord, merge Sud (180°) => x=+OFFSET
+            ("VH_N",  LANE_OFFSET,  120.0, 180.0, 10.0, "straight"),
+            # VH_E: vine din Est, merge Vest (270°) => y=+OFFSET
             ("VH_E",  120.0,  LANE_OFFSET, 270.0, 10.0, "straight"),
-            ("VH_S",  LANE_OFFSET, -120.0,   0.0, 10.0, "straight"),
+            # VH_S: vine din Sud, merge Nord (0°) => x=-OFFSET
+            ("VH_S", -LANE_OFFSET, -120.0,   0.0, 10.0, "straight"),
         ]
         self.vehicles = [
             VehicleAgent(
@@ -94,11 +124,16 @@ class SimulationManager:
         self.active_scenario = "right_of_way"
 
     def scenario_multi_vehicle(self):
+        """4 vehicule din toate directiile, fara semafor."""
         self._clear_vehicles()
         configs = [
-            ("VH_N", -LANE_OFFSET,  120.0, 180.0, 10.0, "straight"),
-            ("VH_S",  LANE_OFFSET, -120.0,   0.0,  9.0, "straight"),
+            # VH_N: vine din Nord, merge Sud (180°) => x=+OFFSET
+            ("VH_N",  LANE_OFFSET,  120.0, 180.0, 10.0, "straight"),
+            # VH_S: vine din Sud, merge Nord (0°) => x=-OFFSET
+            ("VH_S", -LANE_OFFSET, -120.0,   0.0,  9.0, "straight"),
+            # VH_E: vine din Est, merge Vest (270°) => y=+OFFSET
             ("VH_E",  120.0,  LANE_OFFSET, 270.0, 11.0, "straight"),
+            # VH_W: vine din Vest, merge Est (90°) => y=-OFFSET
             ("VH_W", -120.0, -LANE_OFFSET,  90.0,  8.0, "straight"),
         ]
         self.vehicles = [
@@ -114,9 +149,13 @@ class SimulationManager:
         """4 vehicule cu semafor activ."""
         self._clear_vehicles()
         configs = [
-            ("VH_N", -LANE_OFFSET,  120.0, 180.0, 10.0, "straight"),
-            ("VH_S",  LANE_OFFSET, -120.0,   0.0,  9.0, "straight"),
+            # VH_N: vine din Nord, merge Sud (180°) => x=+OFFSET
+            ("VH_N",  LANE_OFFSET,  120.0, 180.0, 10.0, "straight"),
+            # VH_S: vine din Sud, merge Nord (0°) => x=-OFFSET
+            ("VH_S", -LANE_OFFSET, -120.0,   0.0,  9.0, "straight"),
+            # VH_E: vine din Est, merge Vest (270°) => y=+OFFSET
             ("VH_E",  120.0,  LANE_OFFSET, 270.0, 11.0, "straight"),
+            # VH_W: vine din Vest, merge Est (90°) => y=-OFFSET
             ("VH_W", -120.0, -LANE_OFFSET,  90.0,  8.0, "straight"),
         ]
         self.vehicles = [
@@ -131,6 +170,7 @@ class SimulationManager:
     def scenario_emergency_vehicle_no_lights(self):
         """Ambulanta fara semafor — prioritate negociata doar prin V2X."""
         self._clear_vehicles()
+        # Ambulanta: vine din Vest, merge Est (90°) => y=-OFFSET
         ambulance = VehicleAgent(
             agent_id="AMBULANCE",
             start_x=-120.0,
@@ -141,9 +181,10 @@ class SimulationManager:
             intention="straight",
             is_emergency=True,
         )
+        # VH_C: vine din Sud, merge Nord (0°) => x=-OFFSET
         normal_car = VehicleAgent(
             agent_id="VH_C",
-            start_x=LANE_OFFSET,
+            start_x=-LANE_OFFSET,
             start_y=-120.0,
             direction=0.0,
             initial_speed=10.0,
@@ -174,6 +215,7 @@ class SimulationManager:
 
         self._use_traffic_light = scenario in ("emergency_vehicle", "multi_vehicle_traffic_light")
         if self._use_traffic_light:
+            self.infrastructure = InfrastructureAgent()  # reset infrastructure
             self.infrastructure.start()
         for vehicle in self.vehicles:
             vehicle.start()
@@ -234,3 +276,4 @@ class SimulationManager:
 
 
 simulation = SimulationManager()
+

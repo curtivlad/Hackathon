@@ -1,5 +1,6 @@
 """
 main.py — Server FastAPI cu API REST si WebSocket pentru frontend.
+Incarca .env pentru configurarea LLM.
 """
 
 import sys, os, glob, importlib
@@ -10,6 +11,17 @@ for pyc in glob.glob(os.path.join(os.path.dirname(__file__), "__pycache__", "*.p
     except Exception:
         pass
 importlib.invalidate_caches()
+
+# Load .env file
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+load_dotenv()  # also try local .env
+
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+)
 
 import asyncio
 from typing import Set
@@ -49,7 +61,15 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "V2X Safety Agent running"}
+    from llm_brain import LLM_ENABLED, LLM_MODEL, GEMINI_API_KEY
+    has_key = bool(GEMINI_API_KEY) and "INLOCUIESTE" not in GEMINI_API_KEY
+    return {
+        "status": "ok",
+        "message": "V2X Safety Agent running",
+        "llm_enabled": LLM_ENABLED,
+        "llm_model": LLM_MODEL if LLM_ENABLED else None,
+        "llm_api_key_set": has_key,
+    }
 
 
 @app.post("/simulation/start/{scenario}")
