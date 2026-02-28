@@ -38,8 +38,8 @@ SPAWN_MARGIN = 80.0
 # Background traffic settings
 MAX_BG_VEHICLES = 18
 SPAWN_INTERVAL = 2.5
-BG_SPEED_MIN = 7.0
-BG_SPEED_MAX = 12.0
+BG_SPEED_MIN = 12.0
+BG_SPEED_MAX = 20.0
 EMERGENCY_CHANCE = 0.08  # 8% chance a BG vehicle is an ambulance
 MIN_SPAWN_DISTANCE = 60.0  # minimum distance between vehicles on same lane
 
