@@ -10,6 +10,7 @@ from agents import VehicleAgent
 from infrastructure_agent import InfrastructureAgent
 from v2x_channel import channel
 from collision_detector import get_collision_pairs
+from background_traffic import bg_traffic, get_grid_info
 
 # Lane offset: distanta de la centrul drumului la centrul benzii
 # In Europa, se circula pe dreapta => offset pozitiv = banda dreapta
@@ -259,7 +260,12 @@ class SimulationManager:
 
     def get_full_state(self) -> dict:
         all_agents = channel.to_dict()
-        collision_pairs = get_collision_pairs(channel.get_all_states())
+        all_collision_pairs = get_collision_pairs(channel.get_all_states())
+        # Filter out BG-only collision pairs (only show pairs involving demo vehicles)
+        collision_pairs = [
+            p for p in all_collision_pairs
+            if not (p["agent1"].startswith("BG_") and p["agent2"].startswith("BG_"))
+        ]
         use_tl = self._use_traffic_light
         return {
             "scenario": self.active_scenario,
@@ -269,6 +275,9 @@ class SimulationManager:
             "collision_pairs": collision_pairs,
             "stats": self.stats,
             "timestamp": time.time(),
+            "grid": get_grid_info(),
+            "background_traffic": bg_traffic.active,
+            "traffic_light_intersections": bg_traffic.get_traffic_light_states(),
         }
 
 

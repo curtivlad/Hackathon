@@ -35,7 +35,8 @@ class VehicleAgent:
 
     def __init__(self, agent_id, start_x, start_y, direction,
                  initial_speed=10.0, intention="straight",
-                 is_emergency=False, target_speed=10.0):
+                 is_emergency=False, target_speed=10.0,
+                 waypoints=None):
         self.agent_id = agent_id
         self.x = start_x
         self.y = start_y
@@ -52,6 +53,10 @@ class VehicleAgent:
         self._thread = None
         self._passed_intersection = False
         self._entered_intersection = False
+
+        # Waypoint-based routing for background traffic
+        self._waypoints = list(waypoints) if waypoints else None
+        self._is_background = waypoints is not None
 
         # LLM Brain cu MEMORIE PROPRIE — fiecare masina are propriul "creier" AI
         self._llm_brain = LLMBrain(agent_id)
@@ -442,7 +447,264 @@ class VehicleAgent:
             self._passed_intersection = True
         return self._passed_intersection and dist > 120.0
 
+    # ──────────────────────── Waypoint Navigation (background traffic) ────────────────────────
+
+    def _nearest_intersection(self):
+        """Find the nearest intersection center from the grid."""
+        from background_traffic import INTERSECTIONS
+        best = None
+        best_dist = float('inf')
+        for ix, iy in INTERSECTIONS:
+            d = distance(self.x, self.y, ix, iy)
+            if d < best_dist:
+                best_dist = d
+                best = (ix, iy)
+        return best, best_dist
+
+    def _distance_to_nearest_stop_line(self):
+        """Distance to the stop line of the nearest intersection."""
+        inter, _ = self._nearest_intersection()
+        if inter is None:
+            return float('inf')
+        ix, iy = inter
+        if self._moves_on_y():
+            return max(0.0, abs(self.y - iy) - STOP_LINE)
+        else:
+            return max(0.0, abs(self.x - ix) - STOP_LINE)
+
+    def _is_inside_nearest_intersection(self):
+        """Check if we're inside the nearest intersection box."""
+        inter, _ = self._nearest_intersection()
+        if inter is None:
+            return False
+        ix, iy = inter
+        return abs(self.x - ix) < STOP_LINE and abs(self.y - iy) < STOP_LINE
+
+    def _bg_compute_risk_and_decision(self):
+        """Compute risk and decision for a background vehicle using V2X channel."""
+        others = channel.get_other_agents(self.agent_id)
+        my_msg = self._build_message()
+
+        # Compute risk directly via TTC (skip compute_risk_for_agent which
+        # filters by distance to INTERSECTION_CENTER at 0,0)
+        self.risk_level = "low"
+        for other_id, other_msg in others.items():
+            if other_msg.agent_type != "vehicle":
+                continue
+            d = distance(self.x, self.y, other_msg.x, other_msg.y)
+            if d > 150:
+                continue
+            # Skip same-road opposite direction (they won't collide)
+            my_axis = self._get_movement_axis()
+            o_rad = math.radians(other_msg.direction)
+            o_axis = "NS" if abs(math.cos(o_rad)) >= abs(math.sin(o_rad)) else "EW"
+            if my_axis == o_axis:
+                angle_diff = abs(self.direction - other_msg.direction) % 360
+                if abs(angle_diff - 180) < 15:
+                    continue  # opposite directions on same road
+            ttc = compute_ttc(my_msg, other_msg)
+            if ttc < 3.0:
+                self.risk_level = "collision"
+                break
+            elif ttc < 6.0 and self.risk_level != "collision":
+                self.risk_level = "high"
+            elif ttc < 10.0 and self.risk_level not in ("collision", "high"):
+                self.risk_level = "medium"
+
+        inside = self._is_inside_nearest_intersection()
+
+        # If already inside intersection, keep going
+        if inside:
+            self.decision = "go"
+            self.reason = "in_intersection"
+            self.recommended_speed = self.target_speed
+            return
+
+        # ── Check grid traffic lights ──
+        inter, inter_dist = self._nearest_intersection()
+        if inter and inter_dist < 100:
+            from background_traffic import bg_traffic
+            tl = bg_traffic.get_traffic_light_for(inter[0], inter[1])
+            if tl is not None:
+                my_axis = self._get_movement_axis()
+                if not tl.is_green_for_axis(my_axis) and not self.is_emergency:
+                    dist_to_stop = self._distance_to_nearest_stop_line()
+                    self.decision = "stop"
+                    self.reason = "red_light"
+                    if dist_to_stop < 1.0:
+                        self.recommended_speed = 0.0
+                    elif dist_to_stop < 25.0:
+                        self.recommended_speed = max(1.0, self.target_speed * (dist_to_stop / 30.0))
+                    else:
+                        self.recommended_speed = self.target_speed * 0.6
+                    return
+
+        # Check for nearby vehicles that could collide
+        dist_to_stop = self._distance_to_nearest_stop_line()
+        dominated = False  # should I yield?
+
+        for other_id, other_msg in others.items():
+            if other_msg.agent_type != "vehicle":
+                continue
+            d = distance(self.x, self.y, other_msg.x, other_msg.y)
+            if d > 150:
+                continue
+
+            # ── Same-lane, same-direction: follow the leader ──
+            my_axis = self._get_movement_axis()
+            o_rad = math.radians(other_msg.direction)
+            o_axis = "NS" if abs(math.cos(o_rad)) >= abs(math.sin(o_rad)) else "EW"
+            angle_diff = abs(self.direction - other_msg.direction) % 360
+            same_dir = angle_diff < 30 or angle_diff > 330
+
+            if my_axis == o_axis and same_dir and d < 80:
+                # Check if other is AHEAD of us (dot product with our heading)
+                rad = math.radians(self.direction)
+                fwd_x = math.sin(rad)
+                fwd_y = math.cos(rad)
+                dx = other_msg.x - self.x
+                dy = other_msg.y - self.y
+                dot = fwd_x * dx + fwd_y * dy
+                if dot > 0:  # other is ahead
+                    # Follow: match speed, keep distance
+                    safe_dist = 25.0
+                    if d < safe_dist:
+                        self.decision = "brake"
+                        self.reason = "following"
+                        self.recommended_speed = max(0.0, other_msg.speed * 0.7)
+                    elif d < safe_dist * 2:
+                        self.decision = "go"
+                        self.reason = "following"
+                        self.recommended_speed = min(self.target_speed, other_msg.speed)
+                    else:
+                        continue  # far enough, don't care
+                    return  # handled — skip intersection logic
+
+            ttc = compute_ttc(my_msg, other_msg)
+
+            # Emergency vehicle nearby — always yield
+            if other_msg.is_emergency and ttc < 10.0:
+                dominated = True
+                self.reason = "emergency_nearby"
+                break
+
+            # Very close and converging — check who yields
+            if ttc < 5.0:
+                # Simple priority: the one with lower agent_id goes first
+                # (mimics priority negotiation without full logic)
+                # Also: if other is already faster/closer to intersection, yield
+                if other_msg.speed > self.speed + 1.0:
+                    dominated = True
+                    self.reason = "faster_vehicle"
+                elif self.agent_id > other_msg.agent_id:
+                    dominated = True
+                    self.reason = "id_priority"
+                break
+
+            if ttc < 8.0 and self.risk_level in ("high", "collision"):
+                # Check approach directions — if perpendicular, use right-of-way
+                my_axis = self._get_movement_axis()
+                other_rad = math.radians(other_msg.direction)
+                other_axis = "NS" if abs(math.cos(other_rad)) >= abs(math.sin(other_rad)) else "EW"
+
+                if my_axis != other_axis:
+                    # Perpendicular — use right-hand rule based on heading
+                    from priority_negotiation import is_on_right
+                    # Determine approach direction from heading
+                    def _heading_to_approach(direction):
+                        d = direction % 360
+                        if 315 <= d or d < 45:
+                            return "south"   # heading north, coming from south
+                        elif 45 <= d < 135:
+                            return "west"    # heading east, coming from west
+                        elif 135 <= d < 225:
+                            return "north"   # heading south, coming from north
+                        else:
+                            return "east"    # heading west, coming from east
+
+                    my_approach = _heading_to_approach(self.direction)
+                    other_approach = _heading_to_approach(other_msg.direction)
+                    if is_on_right(my_approach, other_approach):
+                        dominated = True
+                        self.reason = "right_of_way"
+                        break
+
+        if dominated:
+            self.decision = "yield"
+            if dist_to_stop < 1.0:
+                self.recommended_speed = 0.0
+            elif dist_to_stop < 30.0:
+                self.recommended_speed = max(1.0, self.target_speed * (dist_to_stop / 40.0))
+            else:
+                self.recommended_speed = max(2.0, self.target_speed * 0.4)
+        else:
+            self.decision = "go"
+            self.reason = "clear"
+            self.recommended_speed = self.target_speed
+
+    def _run_loop_waypoint(self):
+        """Intelligent waypoint-following loop for background traffic vehicles."""
+        yield_counter = 0  # anti-deadlock counter
+
+        while self._running and self._waypoints:
+            tx, ty = self._waypoints[0]
+            dx = tx - self.x
+            dy = ty - self.y
+            dist = math.sqrt(dx * dx + dy * dy)
+
+            if dist < 5.0:
+                # Reached waypoint, advance to next
+                self._waypoints.pop(0)
+                if not self._waypoints:
+                    break
+                tx, ty = self._waypoints[0]
+                dx = tx - self.x
+                dy = ty - self.y
+                dist = math.sqrt(dx * dx + dy * dy)
+
+            # Update direction toward waypoint
+            if dist > 0.1:
+                self.direction = math.degrees(math.atan2(dx, dy)) % 360
+
+            # ── Intelligent decision making ──
+            self._bg_compute_risk_and_decision()
+
+            # Anti-deadlock: if yielding too long, force go
+            if self.decision in ("yield", "stop"):
+                yield_counter += 1
+                if yield_counter > 30:  # ~3 seconds of yielding
+                    self.decision = "go"
+                    self.reason = "anti_deadlock"
+                    self.recommended_speed = self.target_speed
+                    yield_counter = 0
+            else:
+                yield_counter = 0
+
+            # Adjust speed toward recommended
+            if self.speed < self.recommended_speed:
+                self.speed = min(self.speed + ACCELERATION * UPDATE_INTERVAL, self.recommended_speed)
+            elif self.speed > self.recommended_speed:
+                self.speed = max(self.speed - DECELERATION * UPDATE_INTERVAL, self.recommended_speed)
+
+            # Move
+            if self.speed > 0.01:
+                rad = math.radians(self.direction)
+                self.x += self.speed * math.sin(rad) * UPDATE_INTERVAL
+                self.y += self.speed * math.cos(rad) * UPDATE_INTERVAL
+
+            channel.publish(self._build_message())
+            time.sleep(UPDATE_INTERVAL)
+
+        # Done — remove self
+        self._running = False
+        channel.remove_agent(self.agent_id)
+
     def _run_loop(self):
+        # Background vehicles use simple waypoint navigation
+        if self._is_background:
+            self._run_loop_waypoint()
+            return
+
         while self._running:
             self._make_decision()
             self._adjust_speed()

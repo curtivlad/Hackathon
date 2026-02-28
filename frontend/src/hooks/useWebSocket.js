@@ -64,12 +64,24 @@ export function useWebSocket() {
     await fetch(`${API_URL}/simulation/restart`, { method: "POST" });
   };
 
+  const toggleBackgroundTraffic = async () => {
+    const isActive = state?.background_traffic;
+    const endpoint = isActive ? "stop" : "start";
+    await fetch(`${API_URL}/background-traffic/${endpoint}`, { method: "POST" });
+  };
+
   const agents = state?.agents || {};
   const collisionPairs = state?.collision_pairs || [];
-  
+  const grid = state?.grid || null;
+  const backgroundTrafficActive = state?.background_traffic || false;
+
   const status = collisionPairs.some(p => p.risk === "collision" || p.risk === "high") 
     ? "collision" 
     : "safe";
 
-  return { state, connected, error, agents, status, collisionPairs, startScenario, stopSimulation, restartSimulation };
+  return {
+    state, connected, error, agents, status, collisionPairs,
+    startScenario, stopSimulation, restartSimulation,
+    toggleBackgroundTraffic, grid, backgroundTrafficActive,
+  };
 }
