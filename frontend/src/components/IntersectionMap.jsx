@@ -172,13 +172,20 @@ function drawBuildings(ctx, camera, xCoords, yCoords) {
   }
 
   if (_buildingImagesLoaded && blocks.length > 0) {
-    // Each block gets ONE image that fills it completely.
-    // 4 blocks (2x2 grid), 5 images — well shuffled so adjacent blocks differ.
-    // Block order: [bottom-left, bottom-right, top-left, top-right]
-    const assignment = [2, 4, 3, 0]; // fountain-park, hospital, shop, café
+    // Each block gets ONE image — arranged in a varied 4x4 grid so
+    // no two adjacent blocks (horizontally or vertically) share the same image.
+    // Grid[row][col], row 0 = bottom, row 3 = top (world-Y ascending)
+    const imageGrid = [
+      [2, 0, 4, 3],   // bottom row
+      [3, 4, 0, 2],   // row 1
+      [4, 2, 0, 3],   // row 2
+      [0, 3, 4, 2],   // top row
+    ];
     for (let bi = 0; bi < blocks.length; bi++) {
       const b = blocks[bi];
-      const imgIdx = assignment[bi % assignment.length];
+      const col = b.i % imageGrid[0].length;
+      const row = b.j % imageGrid.length;
+      const imgIdx = imageGrid[row][col];
       const img = _buildingImages[imgIdx];
 
       const tl = worldToScreen(b.blockLeft, b.blockTop, camera);
