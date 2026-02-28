@@ -4,7 +4,7 @@ const ROAD_WIDTH = 60;
 const HALF_ROAD = ROAD_WIDTH / 2;
 
 const COLORS = {
-  background: "#0d1117",
+  background: "#101010",
   road: "#1a1a1a",
   roadEdge: "#333",
   laneDivider: "#fcfcfc",
@@ -19,7 +19,6 @@ const COLORS = {
   text: "#ffffff",
 };
 
-// ──────────────────────── Building Images ────────────────────────
 const BUILDING_IMAGE_SRCS = [
   "/unnamed.jpg",
   "/unnamed2.jpg",
@@ -41,7 +40,6 @@ _buildingImages.forEach((img) => {
   };
 });
 
-// Deterministic seeded random so block image assignments stay stable per frame
 function _seededRandom(seed) {
   let s = Math.abs(seed) || 1;
   return function () {
@@ -50,7 +48,6 @@ function _seededRandom(seed) {
   };
 }
 
-// ──────────────────────── Camera helpers ────────────────────────
 function worldToScreen(wx, wy, camera) {
   return {
     sx: (wx - camera.x) * camera.zoom + camera.canvasW / 2,
@@ -180,7 +177,6 @@ function drawCityGrid(ctx, camera, grid) {
     drawSegmentedDashes(ctx, camera, iy, false, minX - HALF_ROAD, maxX + HALF_ROAD, xCoords);
   }
 
-  // ── Fill corner patches to close the perimeter square ──
   ctx.fillStyle = COLORS.road;
   for (const c of [
     { x: minX, y: maxY }, { x: maxX, y: maxY },
@@ -304,9 +300,6 @@ function drawBuildings(ctx, camera, xCoords, yCoords) {
   }
 
   if (_buildingImagesLoaded && blocks.length > 0) {
-    // Each block gets ONE image — arranged in a varied 4x4 grid so
-    // no two adjacent blocks (horizontally or vertically) share the same image.
-    // Grid[row][col], row 0 = bottom, row 3 = top (world-Y ascending)
     const imageGrid = [
       [2, 0, 4, 3],   // bottom row
       [3, 4, 0, 2],   // row 1
@@ -329,13 +322,11 @@ function drawBuildings(ctx, camera, xCoords, yCoords) {
         ctx.drawImage(img, tl.sx, tl.sy, drawW, drawH);
       }
 
-      // Subtle border
       ctx.strokeStyle = COLORS.buildingEdge;
       ctx.lineWidth = 1;
       ctx.strokeRect(tl.sx, tl.sy, drawW, drawH);
     }
   } else {
-    // Fallback: plain dark rectangles while images load
     for (const b of blocks) {
       const tl = worldToScreen(b.blockLeft, b.blockTop, camera);
       const br = worldToScreen(b.blockRight, b.blockBottom, camera);
@@ -464,17 +455,10 @@ function drawTrafficLights(ctx, camera, phase, demo) {
   const pad = 2 * camera.zoom;
   const dist = HALF_ROAD + 18;
 
-  // Each light: position, which phase makes it green, rotation angle (radians)
-  // Lights are placed on the right side of the road for right-hand traffic (European)
-  // and rotated to face incoming traffic.
   const lights = [
-    // Southbound lane (west side of NS road, north of intersection) — faces south
     { wx: ix - HALF_ROAD - 8, wy: iy + dist, green: phase === "NS_GREEN", angle: Math.PI },
-    // Northbound lane (east side of NS road, south of intersection) — faces north
     { wx: ix + HALF_ROAD + 8, wy: iy - dist, green: phase === "NS_GREEN", angle: 0 },
-    // Westbound lane (north side of EW road, east of intersection) — faces west
     { wx: ix + dist, wy: iy + HALF_ROAD + 8, green: phase === "EW_GREEN", angle: -Math.PI / 2 },
-    // Eastbound lane (south side of EW road, west of intersection) — faces east
     { wx: ix - dist, wy: iy - HALF_ROAD - 8, green: phase === "EW_GREEN", angle: Math.PI / 2 },
   ];
 
