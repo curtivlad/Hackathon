@@ -38,7 +38,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from simulation import simulation
 from v2x_channel import channel
-from v2x_security import sanitize_full_state, MAX_WS_CONNECTIONS
+from background_traffic import bg_traffic, get_grid_info
 
 app = FastAPI(title="V2X Intersection Safety Agent")
 
@@ -176,6 +176,23 @@ def list_scenarios():
 @app.get("/v2x/channel")
 def get_channel():
     return channel.to_dict()
+
+
+@app.post("/background-traffic/start")
+def start_bg_traffic():
+    bg_traffic.start()
+    return {"status": "started"}
+
+
+@app.post("/background-traffic/stop")
+def stop_bg_traffic():
+    bg_traffic.stop()
+    return {"status": "stopped"}
+
+
+@app.get("/grid")
+def get_grid():
+    return get_grid_info()
 
 
 @app.get("/v2x/history")
