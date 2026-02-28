@@ -121,12 +121,11 @@ export function useVoiceControl({
       cb.restartSimulation?.();
       confirm("Simulation restarted");
     } else if (text.includes("start")) {
-      if (text.includes("blind")) cb.startScenario?.("blind_intersection");
-      else if (text.includes("ambulance") || text.includes("emergency")) cb.startScenario?.("emergency_vehicle");
+      if (text.includes("ambulance") || text.includes("emergency")) cb.startScenario?.("emergency_vehicle");
       else if (text.includes("drunk")) cb.startScenario?.("drunk_driver");
       else if (text.includes("traffic light") || text.includes("light")) cb.startScenario?.("multi_vehicle_traffic_light");
       else if (text.includes("right")) cb.startScenario?.("right_of_way");
-      else cb.startScenario?.("multi_vehicle");
+      else cb.startScenario?.("right_of_way");
       confirm("Scenario started");
     } else if (text.includes("zoom in") || text.includes("closer")) {
       cb.setZoom?.(prev => Math.min(3.0, (prev || 0.7) + 0.2));

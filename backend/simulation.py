@@ -49,31 +49,6 @@ class SimulationManager:
     #   NS road: Northbound on x=+OFFSET, Southbound on x=-OFFSET
     #   EW road: Eastbound on y=-OFFSET, Westbound on y=+OFFSET
 
-    def scenario_blind_intersection(self):
-        """2 vehicule din directii perpendiculare, fara semafor."""
-        self._clear_vehicles()
-        # VH_A: vine din Nord, merge spre Sud (dir=180) => x=-OFFSET, start y=+120
-        vehicle_a = VehicleAgent(
-            agent_id="VH_A",
-            start_x=-LANE_OFFSET,
-            start_y=120.0,
-            direction=180.0,
-            initial_speed=19.8,
-            target_speed=19.8,
-            intention="straight",
-        )
-        # VH_B: vine din Est, merge spre Vest (dir=270) => y=+OFFSET, start x=+120
-        vehicle_b = VehicleAgent(
-            agent_id="VH_B",
-            start_x=120.0,
-            start_y=LANE_OFFSET,
-            direction=270.0,
-            initial_speed=18.0,
-            target_speed=18.0,
-            intention="straight",
-        )
-        self.vehicles = [vehicle_a, vehicle_b]
-        self.active_scenario = "blind_intersection"
 
     def scenario_emergency_vehicle(self):
         """Ambulanta vs vehicul normal cu semafor activ."""
@@ -122,27 +97,6 @@ class SimulationManager:
         ]
         self.active_scenario = "right_of_way"
 
-    def scenario_multi_vehicle(self):
-        """4 vehicule din toate directiile, fara semafor."""
-        self._clear_vehicles()
-        configs = [
-            # VH_N: vine din Nord, merge Sud (180°) => x=-OFFSET
-            ("VH_N", -LANE_OFFSET,  120.0, 180.0, 18.0, "straight"),
-            # VH_S: vine din Sud, merge Nord (0°) => x=+OFFSET
-            ("VH_S",  LANE_OFFSET, -120.0,   0.0, 16.2, "straight"),
-            # VH_E: vine din Est, merge Vest (270°) => y=+OFFSET
-            ("VH_E",  120.0,  LANE_OFFSET, 270.0, 19.8, "straight"),
-            # VH_W: vine din Vest, merge Est (90°) => y=-OFFSET
-            ("VH_W", -120.0, -LANE_OFFSET,  90.0, 14.4, "straight"),
-        ]
-        self.vehicles = [
-            VehicleAgent(
-                agent_id=cid, start_x=sx, start_y=sy,
-                direction=d, initial_speed=sp, intention=intent
-            )
-            for cid, sx, sy, d, sp, intent in configs
-        ]
-        self.active_scenario = "multi_vehicle"
 
     def scenario_multi_vehicle_traffic_light(self):
         """4 vehicule cu semafor activ."""
@@ -217,21 +171,19 @@ class SimulationManager:
         self.vehicles = [normal, drunk]
         self.active_scenario = "drunk_driver"
 
-    def start(self, scenario: str = "blind_intersection"):
+    def start(self, scenario: str = "right_of_way"):
         if self.running:
             self.stop()
             time.sleep(0.3)
 
         scenarios = {
-            "blind_intersection": self.scenario_blind_intersection,
             "emergency_vehicle": self.scenario_emergency_vehicle,
             "emergency_vehicle_no_lights": self.scenario_emergency_vehicle_no_lights,
             "right_of_way": self.scenario_right_of_way,
-            "multi_vehicle": self.scenario_multi_vehicle,
             "multi_vehicle_traffic_light": self.scenario_multi_vehicle_traffic_light,
             "drunk_driver": self.scenario_drunk_driver,
         }
-        scenarios.get(scenario, self.scenario_blind_intersection)()
+        scenarios.get(scenario, self.scenario_right_of_way)()
 
         self.running = True
         self._start_time = time.time()
@@ -264,7 +216,7 @@ class SimulationManager:
             channel.remove_agent(self.infrastructure.agent_id)
 
     def restart(self, scenario: Optional[str] = None):
-        sc = scenario or self.active_scenario or "blind_intersection"
+        sc = scenario or self.active_scenario or "right_of_way"
         self.stop()
         time.sleep(0.3)
         self.start(sc)

@@ -149,9 +149,7 @@ function App() {
           </h3>
           <div className="flex flex-col gap-2">
             <ScenarioBtn label="3 Vehicles — Right of Way" onClick={() => startScenario('right_of_way')} hoverColor="green" />
-            <ScenarioBtn label="4 Vehicles — Right of Way" onClick={() => startScenario('multi_vehicle')} hoverColor="green" />
             <ScenarioBtn label="4 Vehicles — Traffic Light" onClick={() => startScenario('multi_vehicle_traffic_light')} hoverColor="green" />
-            <ScenarioBtn label="Blind Intersection" onClick={() => startScenario('blind_intersection')} hoverColor="yellow" />
             <ScenarioBtn label="Ambulance — Traffic Light" onClick={() => startScenario('emergency_vehicle')} hoverColor="red" />
             <ScenarioBtn label="Ambulance — No Light" onClick={() => startScenario('emergency_vehicle_no_lights')} hoverColor="orange" />
             <ScenarioBtn label="Drunk Driver" onClick={() => startScenario('drunk_driver')} hoverColor="pink" />
