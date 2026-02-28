@@ -119,3 +119,8 @@ def get_channel():
 def get_history(last_n: int = 50):
     """Ultimele N mesaje V2X publicate."""
     return {"history": channel.get_history(last_n)}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
