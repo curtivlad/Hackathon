@@ -1,52 +1,45 @@
 import React, { useEffect, useState } from "react";
 
-export default function RiskAlert({ collisionPairs = [] }) {
+export default function RiskAlert({ type, collisionPairs = [] }) {
   const [visible, setVisible] = useState(false);
 
-  const hasCollision = collisionPairs.some(p => p.risk === "collision");
-  const hasHigh = collisionPairs.some(p => p.risk === "high");
-
   useEffect(() => {
-    if (hasCollision || hasHigh) {
+    if (type !== "safe") {
       setVisible(true);
     } else {
       const timer = setTimeout(() => setVisible(false), 1000);
       return () => clearTimeout(timer);
     }
-  }, [hasCollision, hasHigh]);
+  }, [type]);
 
   if (!visible) return null;
 
-  const bgColor = hasCollision ? "#b71c1c" : "#e65100";
-  const icon = hasCollision ? "🚨" : "⚠️";
-  const message = hasCollision
-    ? `RISC COLIZIUNE IMINENT — ${collisionPairs.filter(p => p.risk === "collision").length} pereche(i) detectate`
-    : `RISC RIDICAT — ${collisionPairs.length} conflict(e) active`;
+  const isCollision = type === "collision";
+  const bgColor = isCollision ? "#b71c1c" : "#e65100";
+  const icon = isCollision ? "🚨" : "⚠️";
+  const message = isCollision
+    ? `IMMINENT COLLISION RISK!`
+    : `HIGH RISK AHEAD!`;
 
   return (
-    <div style={{
+    <div className="flex flex-col items-center justify-center p-4 rounded-xl shadow-2xl relative overflow-hidden" style={{
       background: bgColor,
       color: "#fff",
-      padding: "10px 16px",
-      borderRadius: "8px",
-      fontFamily: "monospace",
-      fontWeight: "bold",
-      fontSize: "13px",
-      display: "flex",
-      alignItems: "center",
-      gap: "10px",
-      animation: hasCollision ? "pulse 0.5s infinite alternate" : "none",
-      marginBottom: "12px",
+      animation: isCollision ? "pulse 0.5s infinite alternate" : "none",
     }}>
-      <span style={{ fontSize: "20px" }}>{icon}</span>
-      <div>
-        <div>{message}</div>
-        {collisionPairs.map((p, i) => (
-          <div key={i} style={{ fontSize: "11px", opacity: 0.85, marginTop: "2px" }}>
-            {p.agent1} ↔ {p.agent2} — TTC: {p.ttc}s
-          </div>
-        ))}
+      <div className="flex items-center gap-3">
+        <span className="text-3xl">{icon}</span>
+        <div className="font-bold text-lg tracking-wider">{message}</div>
       </div>
+      {collisionPairs && collisionPairs.length > 0 && (
+        <div className="mt-2 text-sm opacity-90 font-mono text-center">
+          {collisionPairs.map((p, i) => (
+            <div key={i}>
+              {p.agent1} ↔ {p.agent2} — TTC: {p.ttc}s
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

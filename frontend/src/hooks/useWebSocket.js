@@ -32,12 +32,11 @@ export function useWebSocket() {
       };
 
       ws.onerror = () => {
-        setError("Nu se poate conecta la server. Verifica ca backend-ul ruleaza.");
+        setError("Cannot connect to server. Check if backend is running.");
       };
 
       ws.onclose = () => {
         setConnected(false);
-        // Reconecteaza dupa 2 secunde
         reconnectTimer.current = setTimeout(connect, 2000);
       };
     } catch (e) {
@@ -53,7 +52,6 @@ export function useWebSocket() {
     };
   }, [connect]);
 
-  // Functii de control API
   const startScenario = async (scenario) => {
     await fetch(`${API_URL}/simulation/start/${scenario}`, { method: "POST" });
   };
@@ -66,5 +64,12 @@ export function useWebSocket() {
     await fetch(`${API_URL}/simulation/restart`, { method: "POST" });
   };
 
-  return { state, connected, error, startScenario, stopSimulation, restartSimulation };
+  const agents = state?.agents || {};
+  const collisionPairs = state?.collision_pairs || [];
+  
+  const status = collisionPairs.some(p => p.risk === "collision" || p.risk === "high") 
+    ? "collision" 
+    : "safe";
+
+  return { state, connected, error, agents, status, collisionPairs, startScenario, stopSimulation, restartSimulation };
 }
