@@ -25,10 +25,10 @@ from llm_brain import LLMBrain, LLM_ENABLED
 
 logger = logging.getLogger("agents")
 
-MAX_SPEED = 14.0
-ACCELERATION = 2.0
-DECELERATION = 6.0
-UPDATE_INTERVAL = 0.1
+MAX_SPEED = 25.0
+ACCELERATION = 4.0
+DECELERATION = 10.0
+UPDATE_INTERVAL = 0.05
 STOP_LINE = 35.0
 
 # Drunk driver erratic behavior parameters
@@ -46,7 +46,7 @@ class VehicleAgent:
     def __init__(self, agent_id, start_x, start_y, direction,
                  initial_speed=10.0, intention="straight",
                  is_emergency=False, target_speed=10.0,
-                 waypoints=None, is_drunk=False):
+                 waypoints=None, is_drunk=False, persistent=False):
         self.agent_id = agent_id
         self.x = start_x
         self.y = start_y
@@ -56,10 +56,13 @@ class VehicleAgent:
         self.intention = intention
         self.is_emergency = is_emergency
         self.is_drunk = is_drunk
+        self.persistent = persistent   # never despawn — turn at edges
+        if self.is_emergency:
+            self.target_speed = MAX_SPEED
         self.decision = "go"
         self.risk_level = "low"
         self.reason = "clear"
-        self.recommended_speed = initial_speed
+        self.recommended_speed = MAX_SPEED if self.is_emergency else initial_speed
         self._running = False
         self._thread = None
         self._passed_intersection = False
@@ -76,6 +79,11 @@ class VehicleAgent:
         self._fallback_history = []
         self._fallback_consecutive = 0
         self._fallback_last_action = None
+
+        self._drunk_phase = random.uniform(0, 2 * math.pi)
+        self._drunk_next_erratic = time.time() + random.uniform(3.0, 6.0)
+        self._drunk_erratic_end = 0.0
+        self._drunk_erratic_speed = 0.0
 
     # ──────────────────────── Helpers ────────────────────────
 
@@ -178,6 +186,35 @@ class VehicleAgent:
             })
         return result
 
+    # ──────────────────────── Emergency rear-collision avoidance ────────────────────────
+
+    def _emergency_rear_collision_speed(self):
+        nearby = self._get_nearby_vehicles_info()
+        rad = math.radians(self.direction)
+        dx_fwd = math.sin(rad)
+        dy_fwd = math.cos(rad)
+        for o in nearby:
+            rel_x = o["x"] - self.x
+            rel_y = o["y"] - self.y
+            proj = rel_x * dx_fwd + rel_y * dy_fwd
+            if proj < 0 or proj > 30:
+                continue
+            perp = abs(rel_x * (-dy_fwd) + rel_y * dx_fwd)
+            if perp > 8:
+                continue
+            dir_diff = abs(((o["direction"] - self.direction + 180) % 360) - 180)
+            if dir_diff > 45:
+                continue
+            if o["speed"] < self.speed * 0.5:
+                gap = proj
+                safe_margin = 5.0
+                stopping_dist = max(0, gap - safe_margin)
+                if stopping_dist < 0.5:
+                    return max(o["speed"], 0.0)
+                v_safe = math.sqrt(max(0, o["speed"] ** 2 + 2 * DECELERATION * stopping_dist))
+                return min(v_safe, MAX_SPEED)
+        return MAX_SPEED
+
     # ──────────────────────── Decision Making (LLM + Adaptive Fallback) ────────────────────────
 
     def _make_decision(self):
@@ -197,6 +234,14 @@ class VehicleAgent:
 
         # Broadcast V2X alerts based on current state
         self._send_situational_v2x_alerts()
+
+        if self.is_emergency:
+            self.decision = "go"
+            self.reason = "emergency_override"
+            self.recommended_speed = self._emergency_rear_collision_speed()
+            self._fallback_consecutive = 0
+            self._fallback_last_action = None
+            return
 
         # ── Drunk driver: erratic behavior ──
         if self.is_drunk:
@@ -250,11 +295,6 @@ class VehicleAgent:
                 if self._entered_intersection:
                     self.decision = "go"
                     self.recommended_speed = max(self.recommended_speed, self.target_speed * 0.5)
-
-                # Emergency override
-                if self.is_emergency:
-                    self.decision = "go"
-                    self.recommended_speed = MAX_SPEED
 
                 return
 
@@ -405,7 +445,7 @@ class VehicleAgent:
         self.reason = base_reason
 
         # ADAPTARE: daca am cedat prea mult timp si nu mai e risc, pleaca
-        if self.decision in ("yield", "stop") and self._fallback_consecutive > 20:
+        if self.decision in ("yield", "stop") and self._fallback_consecutive > 40:
             # Verifica daca e safe sa plec
             nearby = self._get_nearby_vehicles_info()
             all_safe = True
@@ -469,10 +509,6 @@ class VehicleAgent:
         msg = self._build_message()
         self.recommended_speed = compute_recommended_speed(msg, self.decision, self.target_speed)
 
-        if self.is_emergency:
-            self.decision = "go"
-            self.recommended_speed = MAX_SPEED
-
         if self._entered_intersection:
             self.decision = "go"
             self.recommended_speed = self.target_speed
@@ -533,10 +569,25 @@ class VehicleAgent:
                 self._entered_intersection = True
 
     def _adjust_speed(self):
+        if self.is_drunk:
+            now = time.time()
+            self.recommended_speed += 4.0 * math.sin(now * 1.5 + self._drunk_phase)
+            if now >= self._drunk_next_erratic:
+                self._drunk_erratic_speed = random.choice([
+                    random.uniform(2.0, 5.0),
+                    random.uniform(MAX_SPEED * 0.9, MAX_SPEED),
+                ])
+                self._drunk_erratic_end = now + random.uniform(0.5, 1.5)
+                self._drunk_next_erratic = self._drunk_erratic_end + random.uniform(3.0, 6.0)
+            if now < self._drunk_erratic_end:
+                self.recommended_speed = self._drunk_erratic_speed
+            self.recommended_speed = max(0.0, min(self.recommended_speed, MAX_SPEED))
         if self.speed < self.recommended_speed:
             self.speed = min(self.speed + ACCELERATION * UPDATE_INTERVAL, self.recommended_speed)
         elif self.speed > self.recommended_speed:
             self.speed = max(self.speed - DECELERATION * UPDATE_INTERVAL, self.recommended_speed)
+        if self.is_drunk:
+            self.speed = max(0.0, min(self.speed, MAX_SPEED))
 
     # ──────────────────────── Message ────────────────────────
 
@@ -606,13 +657,16 @@ class VehicleAgent:
             if d > 150:
                 continue
             # Skip same-road opposite direction (they won't collide)
+            # Also verify they're on the same road (close perpendicular coord)
             my_axis = self._get_movement_axis()
             o_rad = math.radians(other_msg.direction)
             o_axis = "NS" if abs(math.cos(o_rad)) >= abs(math.sin(o_rad)) else "EW"
             if my_axis == o_axis:
                 angle_diff = abs(self.direction - other_msg.direction) % 360
                 if abs(angle_diff - 180) < 15:
-                    continue  # opposite directions on same road
+                    perp_dist = abs(self.x - other_msg.x) if my_axis == "NS" else abs(self.y - other_msg.y)
+                    if perp_dist < 25.0:
+                        continue  # genuinely opposite directions on same road
             ttc = compute_ttc(my_msg, other_msg)
             if ttc < 3.0:
                 self.risk_level = "collision"
@@ -819,20 +873,88 @@ class VehicleAgent:
                         self.recommended_speed = max(self.recommended_speed, self.target_speed * 0.8)
 
     def _run_loop_waypoint(self):
-        """Intelligent waypoint-following loop for background traffic vehicles."""
-        yield_counter = 0  # anti-deadlock counter
+        """Intelligent waypoint-following loop for background traffic vehicles.
+        Persistent vehicles never despawn — they turn at edges and at random intersections.
+        """
+        from background_traffic import (
+            generate_continuation_waypoints,
+            generate_random_turn_at_intersection,
+            _snap_to_lane,
+            INTERSECTIONS, LANE_OFFSET as BG_LANE_OFFSET,
+        )
 
-        while self._running and self._waypoints:
+        yield_counter = 0
+        TURN_CHANCE = 0.30  # 30% chance to turn at each intersection
+
+        while self._running:
+            # If we ran out of waypoints, generate continuation
+            if not self._waypoints:
+                if self.persistent:
+                    new_wps, new_dir = generate_continuation_waypoints(
+                        self.x, self.y, self.direction
+                    )
+                    if new_wps:
+                        self._waypoints = new_wps
+                        continue
+                    else:
+                        # Fallback: shouldn't happen, but just reverse
+                        self.direction = (self.direction + 180) % 360
+                        time.sleep(UPDATE_INTERVAL)
+                        continue
+                else:
+                    break  # non-persistent: finish
+
             tx, ty = self._waypoints[0]
             dx = tx - self.x
             dy = ty - self.y
             dist = math.sqrt(dx * dx + dy * dy)
 
-            if dist < 5.0:
-                # Reached waypoint, advance to next
-                self._waypoints.pop(0)
+            if dist < 10.0:
+                # ── Reached waypoint ──
+                reached_wp = self._waypoints.pop(0)
+
+                # Snap position to the waypoint to prevent lane drift on turns
+                # Check if there's a significant direction change
+                if self._waypoints:
+                    next_tx, next_ty = self._waypoints[0]
+                    ndx = next_tx - reached_wp[0]
+                    ndy = next_ty - reached_wp[1]
+                    if abs(ndx) > 0.1 or abs(ndy) > 0.1:
+                        new_dir = math.degrees(math.atan2(ndx, ndy)) % 360
+                        old_dir = self.direction % 360
+                        angle_diff = abs(new_dir - old_dir)
+                        if angle_diff > 180:
+                            angle_diff = 360 - angle_diff
+                        if angle_diff > 30:
+                            # Significant turn — snap to the waypoint position
+                            self.x, self.y = reached_wp
+                else:
+                    # Last waypoint reached — for persistent, will generate
+                    # continuation on next iteration
+                    pass
+
+                # ── Random turn decision at intersections ──
+                if self._waypoints and not self.is_drunk and not self.is_emergency:
+                    # Check if we're near an intersection (the waypoint we just
+                    # reached was at an intersection)
+                    wp_x, wp_y = reached_wp
+                    at_intersection = any(
+                        abs(wp_x - ix) < 15 and abs(wp_y - iy) < 15
+                        for ix, iy in INTERSECTIONS
+                    )
+                    if at_intersection and random.random() < TURN_CHANCE:
+                        turn_wps, turn_dir = generate_random_turn_at_intersection(
+                            self.x, self.y, self.direction
+                        )
+                        if turn_wps:
+                            # Replace remaining waypoints with turn route
+                            self._waypoints = turn_wps
+                            # Snap position for the turn
+                            self.x, self.y = _snap_to_lane(self.x, self.y, self.direction)
+
                 if not self._waypoints:
-                    break
+                    continue  # will generate continuation at top of loop
+
                 tx, ty = self._waypoints[0]
                 dx = tx - self.x
                 dy = ty - self.y
@@ -842,7 +964,6 @@ class VehicleAgent:
             if dist > 0.1:
                 base_dir = math.degrees(math.atan2(dx, dy)) % 360
                 if self.is_drunk:
-                    # Drunk swerving — sinusoidal oscillation + random jitter
                     t = time.time()
                     swerve = DRUNK_SWERVE_MAX * math.sin(2 * math.pi * t / DRUNK_SWERVE_PERIOD)
                     swerve += random.uniform(-4, 4)
@@ -852,15 +973,35 @@ class VehicleAgent:
 
             # ── Intelligent decision making ──
             if self.is_drunk:
-                # Drunk driver: erratic decisions instead of normal logic
                 self._bg_drunk_erratic_decision()
             else:
                 self._bg_compute_risk_and_decision()
 
-            # Anti-deadlock: if yielding too long, force go
+            # ── Turn speed reduction: slow down when approaching a corner ──
+            if len(self._waypoints) >= 2 and not self.is_drunk:
+                next_tx, next_ty = self._waypoints[0]
+                after_tx, after_ty = self._waypoints[1]
+                seg1_dx = next_tx - self.x
+                seg1_dy = next_ty - self.y
+                seg2_dx = after_tx - next_tx
+                seg2_dy = after_ty - next_ty
+                len1 = math.sqrt(seg1_dx ** 2 + seg1_dy ** 2)
+                len2 = math.sqrt(seg2_dx ** 2 + seg2_dy ** 2)
+                if len1 > 0.1 and len2 > 0.1:
+                    cos_angle = (seg1_dx * seg2_dx + seg1_dy * seg2_dy) / (len1 * len2)
+                    cos_angle = max(-1.0, min(1.0, cos_angle))
+                    turn_angle = math.degrees(math.acos(cos_angle))
+                    if turn_angle > 30 and dist < 50:
+                        turn_factor = max(0.35, 1.0 - turn_angle / 120.0)
+                        self.recommended_speed = min(
+                            self.recommended_speed,
+                            self.target_speed * turn_factor
+                        )
+
+            # Anti-deadlock
             if self.decision in ("yield", "stop"):
                 yield_counter += 1
-                if yield_counter > 30:  # ~3 seconds of yielding
+                if yield_counter > 60:
                     self.decision = "go"
                     self.reason = "anti_deadlock"
                     self.recommended_speed = self.target_speed
@@ -868,7 +1009,7 @@ class VehicleAgent:
             else:
                 yield_counter = 0
 
-            # Adjust speed toward recommended
+            # Adjust speed
             if self.speed < self.recommended_speed:
                 self.speed = min(self.speed + ACCELERATION * UPDATE_INTERVAL, self.recommended_speed)
             elif self.speed > self.recommended_speed:
@@ -883,7 +1024,7 @@ class VehicleAgent:
             channel.publish(self._build_message())
             time.sleep(UPDATE_INTERVAL)
 
-        # Done — remove self
+        # Done — remove self (only for non-persistent)
         self._running = False
         channel.remove_agent(self.agent_id)
 

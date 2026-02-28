@@ -117,7 +117,7 @@ def compute_decisions_for_all(all_agents: Dict[str, V2XMessage]) -> Dict[str, di
     return decisions
 
 
-def compute_recommended_speed(agent: V2XMessage, decision: str, target_speed: float = 14.0) -> float:
+def compute_recommended_speed(agent: V2XMessage, decision: str, target_speed: float = 25.0) -> float:
     dist_to_edge = _dist_to_stop_line(agent)
     inside = _is_inside_box(agent)
 

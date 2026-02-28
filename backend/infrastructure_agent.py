@@ -11,7 +11,7 @@ from collision_detector import distance, INTERSECTION_CENTER, get_collision_pair
 
 UPDATE_INTERVAL = 0.1
 DECELERATION = 4.0
-MAX_SPEED = 14.0
+MAX_SPEED = 25.0
 PHASE_DURATION = 15.0
 EMERGENCY_PHASE = 15.0
 STOP_LINE_DIST = 25.0

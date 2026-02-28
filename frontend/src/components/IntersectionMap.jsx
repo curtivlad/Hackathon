@@ -70,29 +70,23 @@ function drawCityGrid(ctx, camera, grid) {
   const { intersections, grid_spacing } = grid;
   if (!intersections || intersections.length === 0) return;
 
-  // Small stub of road beyond outermost intersections so vehicles don't spawn from nothing
-  const margin = grid_spacing * 0.5;
-
   ctx.fillStyle = COLORS.background;
   ctx.fillRect(0, 0, camera.canvasW, camera.canvasH);
 
   const xCoords = [...new Set(intersections.map(i => i.x))].sort((a, b) => a - b);
   const yCoords = [...new Set(intersections.map(i => i.y))].sort((a, b) => a - b);
 
-  const gridMinX = Math.min(...xCoords);
-  const gridMaxX = Math.max(...xCoords);
-  const gridMinY = Math.min(...yCoords);
-  const gridMaxY = Math.max(...yCoords);
+  const minX = Math.min(...xCoords);
+  const maxX = Math.max(...xCoords);
+  const minY = Math.min(...yCoords);
+  const maxY = Math.max(...yCoords);
 
-  // Draw vertical roads (columns) — clipped to grid bounds
+  // ── Draw vertical roads (columns) — clipped to grid bounds (no stubs) ──
   for (const ix of xCoords) {
-    const minY = gridMinY - margin;
-    const maxY = gridMaxY + margin;
-
     const left = worldToScreen(ix - HALF_ROAD, 0, camera);
     const right = worldToScreen(ix + HALF_ROAD, 0, camera);
-    const top = worldToScreen(0, maxY, camera);
-    const bot = worldToScreen(0, minY, camera);
+    const top = worldToScreen(0, maxY + HALF_ROAD, camera);
+    const bot = worldToScreen(0, minY - HALF_ROAD, camera);
 
     ctx.fillStyle = COLORS.road;
     ctx.fillRect(left.sx, top.sy, right.sx - left.sx, bot.sy - top.sy);
@@ -114,15 +108,12 @@ function drawCityGrid(ctx, camera, grid) {
     ctx.setLineDash([]);
   }
 
-  // Draw horizontal roads (rows) — clipped to grid bounds
+  // ── Draw horizontal roads (rows) — clipped to grid bounds (no stubs) ──
   for (const iy of yCoords) {
-    const minX = gridMinX - margin;
-    const maxX = gridMaxX + margin;
-
     const top = worldToScreen(0, iy + HALF_ROAD, camera);
     const bot = worldToScreen(0, iy - HALF_ROAD, camera);
-    const left = worldToScreen(minX, 0, camera);
-    const right = worldToScreen(maxX, 0, camera);
+    const left = worldToScreen(minX - HALF_ROAD, 0, camera);
+    const right = worldToScreen(maxX + HALF_ROAD, 0, camera);
 
     ctx.fillStyle = COLORS.road;
     ctx.fillRect(left.sx, top.sy, right.sx - left.sx, bot.sy - top.sy);
@@ -142,6 +133,17 @@ function drawCityGrid(ctx, camera, grid) {
     ctx.moveTo(left.sx, center.sy); ctx.lineTo(right.sx, center.sy);
     ctx.stroke();
     ctx.setLineDash([]);
+  }
+
+  // ── Fill corner patches to close the perimeter square ──
+  ctx.fillStyle = COLORS.road;
+  for (const c of [
+    { x: minX, y: maxY }, { x: maxX, y: maxY },
+    { x: maxX, y: minY }, { x: minX, y: minY },
+  ]) {
+    const tl = worldToScreen(c.x - HALF_ROAD, c.y + HALF_ROAD, camera);
+    const br = worldToScreen(c.x + HALF_ROAD, c.y - HALF_ROAD, camera);
+    ctx.fillRect(tl.sx, tl.sy, br.sx - tl.sx, br.sy - tl.sy);
   }
 
   if (camera.zoom > 0.3) {
@@ -426,6 +428,32 @@ export default function IntersectionMap({
   const dragRef = useRef({ dragging: false, lastX: 0, lastY: 0 });
   const gridData = grid || DEFAULT_GRID;
 
+  const positionsRef = useRef({});
+  const lastUpdateTimeRef = useRef(performance.now());
+  const rafRef = useRef(null);
+  const latestPropsRef = useRef({ agents, infrastructure, collisionPairs, trafficLightIntersections });
+
+  useEffect(() => {
+    latestPropsRef.current = { agents, infrastructure, collisionPairs, trafficLightIntersections };
+  }, [agents, infrastructure, collisionPairs, trafficLightIntersections]);
+
+  useEffect(() => {
+    const now = performance.now();
+    const prev = positionsRef.current;
+    const next = {};
+    for (const [id, agent] of Object.entries(agents)) {
+      if (agent.agent_type !== "vehicle") continue;
+      const old = prev[id];
+      if (old) {
+        next[id] = { prevX: old.currX, prevY: old.currY, currX: agent.x, currY: agent.y };
+      } else {
+        next[id] = { prevX: agent.x, prevY: agent.y, currX: agent.x, currY: agent.y };
+      }
+    }
+    positionsRef.current = next;
+    lastUpdateTimeRef.current = now;
+  }, [agents]);
+
   const computeMinZoom = useCallback(() => {
     const g = gridData;
     if (!g.intersections || g.intersections.length < 2) return 0.15;
@@ -482,47 +510,82 @@ export default function IntersectionMap({
 
   const handleMouseUp = useCallback(() => { dragRef.current.dragging = false; }, []);
 
+  const cameraRef = useRef(camera);
+  useEffect(() => { cameraRef.current = camera; }, [camera]);
+
+  const gridDataRef = useRef(gridData);
+  useEffect(() => { gridDataRef.current = gridData; }, [gridData]);
+
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const dpr = window.devicePixelRatio || 1;
-    const cam = { ...camera };
+    const UPDATE_MS = 50;
 
-    canvas.width = cam.canvasW * dpr;
-    canvas.height = cam.canvasH * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const renderFrame = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) { rafRef.current = requestAnimationFrame(renderFrame); return; }
+      const ctx = canvas.getContext("2d");
+      const dpr = window.devicePixelRatio || 1;
+      const cam = { ...cameraRef.current };
+      const gd = gridDataRef.current;
+      const { agents: curAgents, infrastructure: curInfra, collisionPairs: curPairs, trafficLightIntersections: curTLI } = latestPropsRef.current;
 
-    ctx.clearRect(0, 0, cam.canvasW, cam.canvasH);
-    drawCityGrid(ctx, cam, gridData);
-    drawDemoHighlight(ctx, cam, gridData.demo_intersection);
-    drawCollisionZone(ctx, cam, collisionPairs, agents);
+      canvas.width = cam.canvasW * dpr;
+      canvas.height = cam.canvasH * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    const bgV = [], demoV = [], drunkV = [];
-    for (const a of Object.values(agents)) {
-      if (a.agent_type !== "vehicle") continue;
-      if (a.is_drunk) drunkV.push(a);
-      else if (a.agent_id?.startsWith("BG_")) bgV.push(a);
-      else demoV.push(a);
-    }
-    for (const v of bgV) drawVehicle(ctx, cam, v);
-    for (const v of demoV) drawVehicle(ctx, cam, v);
-    for (const v of drunkV) drawVehicle(ctx, cam, v);
+      const now = performance.now();
+      const elapsed = now - lastUpdateTimeRef.current;
+      const t = Math.min(elapsed / UPDATE_MS, 1.0);
 
-    if (infrastructure?.phase) drawTrafficLights(ctx, cam, infrastructure.phase, gridData.demo_intersection);
-
-    if (trafficLightIntersections && trafficLightIntersections.length > 0) {
-      for (const tli of trafficLightIntersections) {
-        if (infrastructure?.phase && gridData.demo_intersection &&
-            tli.x === gridData.demo_intersection.x && tli.y === gridData.demo_intersection.y) continue;
-        drawTrafficLights(ctx, cam, tli.phase, tli);
+      const interpolatedAgents = {};
+      for (const [id, agent] of Object.entries(curAgents)) {
+        const pos = positionsRef.current[id];
+        if (pos) {
+          interpolatedAgents[id] = {
+            ...agent,
+            x: pos.prevX + (pos.currX - pos.prevX) * t,
+            y: pos.prevY + (pos.currY - pos.prevY) * t,
+          };
+        } else {
+          interpolatedAgents[id] = agent;
+        }
       }
-    }
 
-    ctx.fillStyle = "rgba(255,255,255,0.2)";
-    ctx.font = "11px monospace"; ctx.textAlign = "right";
-    ctx.fillText(`Zoom: ${(cam.zoom * 100).toFixed(0)}%`, cam.canvasW - 12, cam.canvasH - 12);
-  }, [agents, infrastructure, collisionPairs, camera, gridData]);
+      ctx.clearRect(0, 0, cam.canvasW, cam.canvasH);
+      drawCityGrid(ctx, cam, gd);
+      drawDemoHighlight(ctx, cam, gd.demo_intersection);
+      drawCollisionZone(ctx, cam, curPairs, interpolatedAgents);
+
+      const bgV = [], demoV = [], drunkV = [];
+      for (const a of Object.values(interpolatedAgents)) {
+        if (a.agent_type !== "vehicle") continue;
+        if (a.is_drunk) drunkV.push(a);
+        else if (a.agent_id?.startsWith("BG_")) bgV.push(a);
+        else demoV.push(a);
+      }
+      for (const v of bgV) drawVehicle(ctx, cam, v);
+      for (const v of demoV) drawVehicle(ctx, cam, v);
+      for (const v of drunkV) drawVehicle(ctx, cam, v);
+
+      if (curInfra?.phase) drawTrafficLights(ctx, cam, curInfra.phase, gd.demo_intersection);
+
+      if (curTLI && curTLI.length > 0) {
+        for (const tli of curTLI) {
+          if (curInfra?.phase && gd.demo_intersection &&
+              tli.x === gd.demo_intersection.x && tli.y === gd.demo_intersection.y) continue;
+          drawTrafficLights(ctx, cam, tli.phase, tli);
+        }
+      }
+
+      ctx.fillStyle = "rgba(255,255,255,0.2)";
+      ctx.font = "11px monospace"; ctx.textAlign = "right";
+      ctx.fillText(`Zoom: ${(cam.zoom * 100).toFixed(0)}%`, cam.canvasW - 12, cam.canvasH - 12);
+
+      rafRef.current = requestAnimationFrame(renderFrame);
+    };
+
+    rafRef.current = requestAnimationFrame(renderFrame);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, []);
 
   return (
     <div
