@@ -19,12 +19,45 @@ const COLORS = {
   text: "#ffffff",
 };
 
+// ──────────────────────── Building Images ────────────────────────
+const BUILDING_IMAGE_SRCS = [
+  "/unnamed.jpg",
+  "/unnamed2.jpg",
+  "/unnamed3.jpg",
+  "/unnamed4.jpg",
+  "/unnamed5.jpg",
+];
+const _buildingImages = BUILDING_IMAGE_SRCS.map((src) => {
+  const img = new Image();
+  img.src = src;
+  return img;
+});
+let _buildingImagesLoaded = false;
+let _buildingImagesLoadCount = 0;
+_buildingImages.forEach((img) => {
+  img.onload = () => {
+    _buildingImagesLoadCount++;
+    if (_buildingImagesLoadCount === _buildingImages.length) _buildingImagesLoaded = true;
+  };
+});
+
+// Deterministic seeded random so block image assignments stay stable per frame
+function _seededRandom(seed) {
+  let s = Math.abs(seed) || 1;
+  return function () {
+    s = (s * 16807 + 0) % 2147483647;
+    return (s - 1) / 2147483646;
+  };
+}
+
+// ──────────────────────── Camera helpers ────────────────────────
 function worldToScreen(wx, wy, camera) {
   return {
     sx: (wx - camera.x) * camera.zoom + camera.canvasW / 2,
     sy: -(wy - camera.y) * camera.zoom + camera.canvasH / 2,
   };
 }
+
 
 function screenToWorld(sx, sy, camera) {
   return {
@@ -122,6 +155,9 @@ function drawCityGrid(ctx, camera, grid) {
 
 function drawBuildings(ctx, camera, xCoords, yCoords) {
   const pad = 8;
+
+  // Collect all block rectangles (world coords)
+  const blocks = [];
   for (let i = 0; i < xCoords.length - 1; i++) {
     for (let j = 0; j < yCoords.length - 1; j++) {
       const blockLeft = xCoords[i] + HALF_ROAD + pad;
@@ -129,30 +165,45 @@ function drawBuildings(ctx, camera, xCoords, yCoords) {
       const blockBottom = yCoords[j] + HALF_ROAD + pad;
       const blockTop = yCoords[j + 1] - HALF_ROAD - pad;
       if (blockRight <= blockLeft || blockTop <= blockBottom) continue;
+      blocks.push({ blockLeft, blockRight, blockBottom, blockTop, i, j });
+    }
+  }
 
-      const tl = worldToScreen(blockLeft, blockTop, camera);
-      const br = worldToScreen(blockRight, blockBottom, camera);
+  if (_buildingImagesLoaded && blocks.length > 0) {
+    // Each block gets ONE image that fills it completely.
+    // 4 blocks (2x2 grid), 5 images — well shuffled so adjacent blocks differ.
+    // Block order: [bottom-left, bottom-right, top-left, top-right]
+    const assignment = [2, 4, 3, 0]; // fountain-park, hospital, shop, café
+    for (let bi = 0; bi < blocks.length; bi++) {
+      const b = blocks[bi];
+      const imgIdx = assignment[bi % assignment.length];
+      const img = _buildingImages[imgIdx];
+
+      const tl = worldToScreen(b.blockLeft, b.blockTop, camera);
+      const br = worldToScreen(b.blockRight, b.blockBottom, camera);
+      const drawW = br.sx - tl.sx;
+      const drawH = br.sy - tl.sy;
+
+      if (drawW > 1 && drawH > 1) {
+        ctx.drawImage(img, tl.sx, tl.sy, drawW, drawH);
+      }
+
+      // Subtle border
+      ctx.strokeStyle = COLORS.buildingEdge;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(tl.sx, tl.sy, drawW, drawH);
+    }
+  } else {
+    // Fallback: plain dark rectangles while images load
+    for (const b of blocks) {
+      const tl = worldToScreen(b.blockLeft, b.blockTop, camera);
+      const br = worldToScreen(b.blockRight, b.blockBottom, camera);
 
       ctx.fillStyle = COLORS.building;
       ctx.strokeStyle = COLORS.buildingEdge;
       ctx.lineWidth = 1;
       ctx.fillRect(tl.sx, tl.sy, br.sx - tl.sx, br.sy - tl.sy);
       ctx.strokeRect(tl.sx, tl.sy, br.sx - tl.sx, br.sy - tl.sy);
-
-      if (camera.zoom > 0.6) {
-        const midWx = (blockLeft + blockRight) / 2;
-        const midWy = (blockBottom + blockTop) / 2;
-        ctx.fillStyle = COLORS.tree;
-        for (const tp of [
-          { x: blockLeft + 15, y: blockTop - 15 },
-          { x: blockRight - 15, y: blockBottom + 15 },
-          { x: midWx, y: midWy },
-        ]) {
-          const ts = worldToScreen(tp.x, tp.y, camera);
-          const r = Math.max(3, 8 * camera.zoom);
-          ctx.beginPath(); ctx.arc(ts.sx, ts.sy, r, 0, Math.PI * 2); ctx.fill();
-        }
-      }
     }
   }
 }
