@@ -58,8 +58,8 @@ class SimulationManager:
             start_x=-LANE_OFFSET,
             start_y=120.0,
             direction=180.0,
-            initial_speed=11.0,
-            target_speed=11.0,
+            initial_speed=19.8,
+            target_speed=19.8,
             intention="straight",
         )
         # VH_B: vine din Est, merge spre Vest (dir=270) => y=+OFFSET, start x=+120
@@ -68,8 +68,8 @@ class SimulationManager:
             start_x=120.0,
             start_y=LANE_OFFSET,
             direction=270.0,
-            initial_speed=10.0,
-            target_speed=10.0,
+            initial_speed=18.0,
+            target_speed=18.0,
             intention="straight",
         )
         self.vehicles = [vehicle_a, vehicle_b]
@@ -84,8 +84,8 @@ class SimulationManager:
             start_x=-120.0,
             start_y=-LANE_OFFSET,
             direction=90.0,
-            initial_speed=14.0,
-            target_speed=14.0,
+            initial_speed=25.2,
+            target_speed=25.2,
             intention="straight",
             is_emergency=True,
         )
@@ -95,8 +95,8 @@ class SimulationManager:
             start_x=LANE_OFFSET,
             start_y=-120.0,
             direction=0.0,
-            initial_speed=10.0,
-            target_speed=10.0,
+            initial_speed=18.0,
+            target_speed=18.0,
             intention="straight",
         )
         self.vehicles = [ambulance, normal_car]
@@ -107,11 +107,11 @@ class SimulationManager:
         self._clear_vehicles()
         configs = [
             # VH_N: vine din Nord, merge Sud (180°) => x=-OFFSET
-            ("VH_N", -LANE_OFFSET,  120.0, 180.0, 10.0, "straight"),
+            ("VH_N", -LANE_OFFSET,  120.0, 180.0, 18.0, "straight"),
             # VH_E: vine din Est, merge Vest (270°) => y=+OFFSET
-            ("VH_E",  120.0,  LANE_OFFSET, 270.0, 10.0, "straight"),
+            ("VH_E",  120.0,  LANE_OFFSET, 270.0, 18.0, "straight"),
             # VH_S: vine din Sud, merge Nord (0°) => x=+OFFSET
-            ("VH_S",  LANE_OFFSET, -120.0,   0.0, 10.0, "straight"),
+            ("VH_S",  LANE_OFFSET, -120.0,   0.0, 18.0, "straight"),
         ]
         self.vehicles = [
             VehicleAgent(
@@ -127,13 +127,13 @@ class SimulationManager:
         self._clear_vehicles()
         configs = [
             # VH_N: vine din Nord, merge Sud (180°) => x=-OFFSET
-            ("VH_N", -LANE_OFFSET,  120.0, 180.0, 10.0, "straight"),
+            ("VH_N", -LANE_OFFSET,  120.0, 180.0, 18.0, "straight"),
             # VH_S: vine din Sud, merge Nord (0°) => x=+OFFSET
-            ("VH_S",  LANE_OFFSET, -120.0,   0.0,  9.0, "straight"),
+            ("VH_S",  LANE_OFFSET, -120.0,   0.0, 16.2, "straight"),
             # VH_E: vine din Est, merge Vest (270°) => y=+OFFSET
-            ("VH_E",  120.0,  LANE_OFFSET, 270.0, 11.0, "straight"),
+            ("VH_E",  120.0,  LANE_OFFSET, 270.0, 19.8, "straight"),
             # VH_W: vine din Vest, merge Est (90°) => y=-OFFSET
-            ("VH_W", -120.0, -LANE_OFFSET,  90.0,  8.0, "straight"),
+            ("VH_W", -120.0, -LANE_OFFSET,  90.0, 14.4, "straight"),
         ]
         self.vehicles = [
             VehicleAgent(
@@ -149,13 +149,13 @@ class SimulationManager:
         self._clear_vehicles()
         configs = [
             # VH_N: vine din Nord, merge Sud (180°) => x=-OFFSET
-            ("VH_N", -LANE_OFFSET,  120.0, 180.0, 10.0, "straight"),
+            ("VH_N", -LANE_OFFSET,  120.0, 180.0, 18.0, "straight"),
             # VH_S: vine din Sud, merge Nord (0°) => x=+OFFSET
-            ("VH_S",  LANE_OFFSET, -120.0,   0.0,  9.0, "straight"),
+            ("VH_S",  LANE_OFFSET, -120.0,   0.0, 16.2, "straight"),
             # VH_E: vine din Est, merge Vest (270°) => y=+OFFSET
-            ("VH_E",  120.0,  LANE_OFFSET, 270.0, 11.0, "straight"),
+            ("VH_E",  120.0,  LANE_OFFSET, 270.0, 19.8, "straight"),
             # VH_W: vine din Vest, merge Est (90°) => y=-OFFSET
-            ("VH_W", -120.0, -LANE_OFFSET,  90.0,  8.0, "straight"),
+            ("VH_W", -120.0, -LANE_OFFSET,  90.0, 14.4, "straight"),
         ]
         self.vehicles = [
             VehicleAgent(
@@ -175,8 +175,8 @@ class SimulationManager:
             start_x=-120.0,
             start_y=-LANE_OFFSET,
             direction=90.0,
-            initial_speed=14.0,
-            target_speed=14.0,
+            initial_speed=25.2,
+            target_speed=25.2,
             intention="straight",
             is_emergency=True,
         )
@@ -186,12 +186,36 @@ class SimulationManager:
             start_x=LANE_OFFSET,
             start_y=-120.0,
             direction=0.0,
-            initial_speed=10.0,
-            target_speed=10.0,
+            initial_speed=18.0,
+            target_speed=18.0,
             intention="straight",
         )
         self.vehicles = [ambulance, normal_car]
         self.active_scenario = "emergency_vehicle_no_lights"
+
+    def scenario_drunk_driver(self):
+        self._clear_vehicles()
+        normal = VehicleAgent(
+            agent_id="VH_A",
+            start_x=-LANE_OFFSET,
+            start_y=120.0,
+            direction=180.0,
+            initial_speed=18.0,
+            target_speed=18.0,
+            intention="straight",
+        )
+        drunk = VehicleAgent(
+            agent_id="DRUNK",
+            start_x=120.0,
+            start_y=LANE_OFFSET,
+            direction=270.0,
+            initial_speed=14.0,
+            target_speed=14.0,
+            intention="straight",
+            is_drunk=True,
+        )
+        self.vehicles = [normal, drunk]
+        self.active_scenario = "drunk_driver"
 
     def start(self, scenario: str = "blind_intersection"):
         if self.running:
@@ -205,6 +229,7 @@ class SimulationManager:
             "right_of_way": self.scenario_right_of_way,
             "multi_vehicle": self.scenario_multi_vehicle,
             "multi_vehicle_traffic_light": self.scenario_multi_vehicle_traffic_light,
+            "drunk_driver": self.scenario_drunk_driver,
         }
         scenarios.get(scenario, self.scenario_blind_intersection)()
 

@@ -131,6 +131,7 @@ function App() {
             <ScenarioBtn label="Blind Intersection" onClick={() => startScenario('blind_intersection')} hoverColor="yellow" />
             <ScenarioBtn label="Ambulance — Traffic Light" onClick={() => startScenario('emergency_vehicle')} hoverColor="red" />
             <ScenarioBtn label="Ambulance — No Light" onClick={() => startScenario('emergency_vehicle_no_lights')} hoverColor="orange" />
+            <ScenarioBtn label="Drunk Driver" onClick={() => startScenario('drunk_driver')} hoverColor="pink" />
           </div>
         </div>
       </div>

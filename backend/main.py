@@ -229,7 +229,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(
             # SANITIZARE: nu trimitem date brute, ci validate si curatate
             safe_state = sanitize_full_state(raw_state)
             await websocket.send_json(safe_state)
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
     except WebSocketDisconnect:
         active_connections.discard(websocket)
     except Exception:
@@ -241,6 +241,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(
 VALID_SCENARIOS = frozenset([
     "blind_intersection", "emergency_vehicle", "emergency_vehicle_no_lights",
     "right_of_way", "multi_vehicle", "multi_vehicle_traffic_light",
+    "drunk_driver",
 ])
 
 
