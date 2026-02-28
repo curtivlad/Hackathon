@@ -32,6 +32,7 @@ class V2XMessage:
     decision: str
     timestamp: float = field(default_factory=time.time)
     is_emergency: bool = False
+    is_drunk: bool = False
     hmac_signature: str = ""  # HMAC-SHA256 — protectie integritate
 
 
@@ -74,6 +75,7 @@ class V2XChannel:
             message.direction, message.intention,
             message.risk_level, message.decision,
             message.timestamp, message.is_emergency,
+            message.is_drunk,
         )
         if not valid:
             self._rejected_messages += 1
@@ -187,8 +189,8 @@ class V2XChannel:
                     "decision": m.decision,
                     "timestamp": m.timestamp,
                     "is_emergency": m.is_emergency,
+                    "is_drunk": m.is_drunk,
                 }
-                for m in recent
             ]
 
     def to_dict(self) -> dict:
@@ -206,6 +208,7 @@ class V2XChannel:
                     "decision": m.decision,
                     "timestamp": m.timestamp,
                     "is_emergency": m.is_emergency,
+                    "is_drunk": m.is_drunk,
                 }
                 for agent_id, m in self._messages.items()
             }
