@@ -203,16 +203,16 @@ function drawRoad(ctx) {
     ctx.restore();
   };
 
-  // Top approach (driving DOWN) => Left side, rotation 180deg (Math.PI)
+  // Top approach (driving South) => West lane (right side of road), rotation 180deg
   drawComplexArrow(CENTER - arrowOffset, CENTER - arrowDist, Math.PI);
 
-  // Bottom approach (driving UP) => Right side, rotation 0deg
+  // Bottom approach (driving North) => East lane (right side of road), rotation 0deg
   drawComplexArrow(CENTER + arrowOffset, CENTER + arrowDist, 0);
 
-  // Left approach (driving RIGHT) => Bottom side, rotation 90deg (Math.PI/2)
+  // Left approach (driving East) => South lane (right side of road), rotation 90deg
   drawComplexArrow(CENTER - arrowDist, CENTER + arrowOffset, Math.PI / 2);
 
-  // Right approach (driving LEFT) => Top side, rotation 270deg (-Math.PI/2)
+  // Right approach (driving West) => North lane (right side of road), rotation 270deg
   drawComplexArrow(CENTER + arrowDist, CENTER - arrowOffset, -Math.PI / 2);
 }
 
