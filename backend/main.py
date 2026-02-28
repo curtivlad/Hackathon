@@ -2,11 +2,18 @@
 main.py — Server FastAPI SECURIZAT cu API REST si WebSocket.
 
 Securitate:
+- Autentificare: Token Bearer pe REST + query param pe WebSocket
+- Rate Limiting: REST endpoints au limita per IP per minut (anti-flood)
 - WebSocket: datele sunt SANITIZATE inainte de trimitere (nu se trimit date brute)
 - WebSocket: limita MAX conexiuni simultane
 - CORS: restrans la originile necesare
 - Input: validare scenario names (whitelist)
 - Endpoint /security/stats: monitoring securitate in timp real
+
+Arhitectura:
+- SimulationManager este un singleton in-process. Serverul TREBUIE rulat cu
+  un singur worker (uvicorn --workers 1). La startup se verifica automat.
+  Pentru scalare horizontala se recomanda Redis ca state-store.
 """
 
 import sys, os, glob, importlib
@@ -31,9 +38,11 @@ logging.basicConfig(
 logger = logging.getLogger("main")
 
 import asyncio
-from typing import Set
+from typing import Set, Optional
+from collections import defaultdict
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, Header, Query, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from simulation import simulation
@@ -41,7 +50,79 @@ from v2x_channel import channel
 from background_traffic import bg_traffic, get_grid_info
 from v2x_security import MAX_WS_CONNECTIONS, sanitize_full_state
 
-app = FastAPI(title="V2X Intersection Safety Agent")
+# ─── SECURITY CONFIG (read early, before app creation) ────────────────────────
+API_TOKEN = os.getenv("API_TOKEN", "v2x-secret-token-change-in-prod")
+REST_RATE_LIMIT = int(os.getenv("REST_RATE_LIMIT", "30"))  # req/min per IP
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup / shutdown lifecycle — modern FastAPI pattern."""
+    logger.info("=" * 60)
+    logger.info("  V2X Safety Agent — starting up")
+    logger.info(f"  Auth enabled: {bool(API_TOKEN)}")
+    logger.info(f"  REST rate limit: {REST_RATE_LIMIT} req/min/IP")
+    logger.info(f"  Max WS connections: {MAX_WS_CONNECTIONS}")
+    logger.info(f"  LLM circuit breaker: enabled")
+    logger.info("  NOTICE: Server MUST run with workers=1 (in-process state)")
+    logger.info("  For horizontal scaling, replace SimulationManager with Redis.")
+    logger.info("=" * 60)
+    yield
+    # Shutdown: opreste simularea daca ruleaza
+    if simulation.running:
+        simulation.stop()
+    logger.info("V2X Safety Agent — shut down cleanly.")
+
+
+app = FastAPI(title="V2X Intersection Safety Agent", lifespan=lifespan)
+
+
+# ─── REST RATE LIMITER (per IP, per minute) ──────────────────────────────────
+
+class _RestRateLimiter:
+    """Simple in-memory sliding-window rate limiter per IP."""
+
+    def __init__(self, max_per_min: int):
+        self._max = max_per_min
+        self._buckets: dict = defaultdict(list)
+        import threading
+        self._lock = threading.Lock()
+
+    def allow(self, ip: str) -> bool:
+        import time as _t
+        now = _t.time()
+        with self._lock:
+            bucket = self._buckets[ip]
+            self._buckets[ip] = [t for t in bucket if now - t < 60.0]
+            if len(self._buckets[ip]) >= self._max:
+                return False
+            self._buckets[ip].append(now)
+            return True
+
+
+_rest_limiter = _RestRateLimiter(REST_RATE_LIMIT)
+
+
+# ─── AUTH: Token-based authentication ────────────────────────────────────────
+
+async def verify_token(authorization: Optional[str] = Header(None)):
+    """Verifica header-ul Authorization: Bearer <token>."""
+    if not API_TOKEN:
+        return  # daca nu e setat token, skip (dev mode)
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+    parts = authorization.split(" ", 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer" or parts[1] != API_TOKEN:
+        raise HTTPException(status_code=403, detail="Invalid token")
+
+
+async def rate_limit(request: Request):
+    """Rate limiting pe endpoint-uri REST."""
+    client_ip = request.client.host if request.client else "unknown"
+    if not _rest_limiter.allow(client_ip):
+        raise HTTPException(status_code=429, detail="Too many requests. Try again later.")
+
+
 
 # ─── CORS: restrans la frontend-uri cunoscute ───────────────────────────────
 ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
@@ -58,7 +139,14 @@ active_connections: Set[WebSocket] = set()
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
+    # Autentificare prin query param: /ws?token=xxx
+    if API_TOKEN and token != API_TOKEN:
+        logger.warning("[SECURITY] WebSocket REFUZAT — token invalid sau lipsa")
+        await websocket.accept()
+        await websocket.close(code=1008, reason="Unauthorized")
+        return
+
     # Limita conexiuni
     if len(active_connections) >= MAX_WS_CONNECTIONS:
         logger.warning(f"[SECURITY] WebSocket REFUZAT — max {MAX_WS_CONNECTIONS} conexiuni atinse")
@@ -100,10 +188,11 @@ def root():
         "llm_model": LLM_MODEL if LLM_ENABLED else None,
         "llm_api_key_set": has_key,
         "security": "enabled",
+        "auth_required": bool(API_TOKEN),
     }
 
 
-@app.post("/simulation/start/{scenario}")
+@app.post("/simulation/start/{scenario}", dependencies=[Depends(verify_token), Depends(rate_limit)])
 def start_simulation(scenario: str):
     # Validare stricta — doar scenarii din whitelist
     if scenario not in VALID_SCENARIOS:
@@ -112,19 +201,19 @@ def start_simulation(scenario: str):
     return {"status": "started", "scenario": scenario}
 
 
-@app.post("/simulation/stop")
+@app.post("/simulation/stop", dependencies=[Depends(verify_token), Depends(rate_limit)])
 def stop_simulation():
     simulation.stop()
     return {"status": "stopped"}
 
 
-@app.post("/simulation/restart")
+@app.post("/simulation/restart", dependencies=[Depends(verify_token), Depends(rate_limit)])
 def restart_simulation():
     simulation.restart()
     return {"status": "restarted", "scenario": simulation.active_scenario}
 
 
-@app.get("/simulation/state")
+@app.get("/simulation/state", dependencies=[Depends(rate_limit)])
 def get_state():
     raw = simulation.get_full_state()
     return sanitize_full_state(raw)
@@ -179,13 +268,13 @@ def get_channel():
     return channel.to_dict()
 
 
-@app.post("/background-traffic/start")
+@app.post("/background-traffic/start", dependencies=[Depends(verify_token), Depends(rate_limit)])
 def start_bg_traffic():
     bg_traffic.start()
     return {"status": "started"}
 
 
-@app.post("/background-traffic/stop")
+@app.post("/background-traffic/stop", dependencies=[Depends(verify_token), Depends(rate_limit)])
 def stop_bg_traffic():
     bg_traffic.stop()
     return {"status": "stopped"}
@@ -205,16 +294,23 @@ def get_history(last_n: int = 50):
 
 # ─── Security monitoring endpoint ──────────────────────────────────────────
 
-@app.get("/security/stats")
+@app.get("/security/stats", dependencies=[Depends(verify_token)])
 def security_stats():
     """Endpoint de monitoring securitate — arata mesaje respinse, agenti inactivi, etc."""
+    from llm_brain import get_circuit_breaker_stats
     return {
         "v2x_channel": channel.get_security_stats(),
         "ws_connections": len(active_connections),
         "ws_max_connections": MAX_WS_CONNECTIONS,
+        "auth_enabled": bool(API_TOKEN),
+        "rest_rate_limit_per_min": REST_RATE_LIMIT,
+        "llm_circuit_breaker": get_circuit_breaker_stats(),
     }
+
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000)
+    # IMPORTANT: workers=1 obligatoriu — SimulationManager e singleton in-process
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, workers=1)
+

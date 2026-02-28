@@ -1,7 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
-const WS_URL = `ws://${window.location.hostname}:8000/ws`;
+const API_TOKEN = import.meta.env.VITE_API_TOKEN || "v2x-secret-token-change-in-prod";
+const WS_URL = `ws://${window.location.hostname}:8000/ws?token=${encodeURIComponent(API_TOKEN)}`;
 const API_URL = `http://${window.location.hostname}:8000`;
+
+const authHeaders = {
+  "Content-Type": "application/json",
+  "Authorization": `Bearer ${API_TOKEN}`,
+};
 
 export function useWebSocket() {
   const [state, setState] = useState(null);
@@ -53,21 +59,21 @@ export function useWebSocket() {
   }, [connect]);
 
   const startScenario = async (scenario) => {
-    await fetch(`${API_URL}/simulation/start/${scenario}`, { method: "POST" });
+    await fetch(`${API_URL}/simulation/start/${scenario}`, { method: "POST", headers: authHeaders });
   };
 
   const stopSimulation = async () => {
-    await fetch(`${API_URL}/simulation/stop`, { method: "POST" });
+    await fetch(`${API_URL}/simulation/stop`, { method: "POST", headers: authHeaders });
   };
 
   const restartSimulation = async () => {
-    await fetch(`${API_URL}/simulation/restart`, { method: "POST" });
+    await fetch(`${API_URL}/simulation/restart`, { method: "POST", headers: authHeaders });
   };
 
   const toggleBackgroundTraffic = async () => {
     const isActive = state?.background_traffic;
     const endpoint = isActive ? "stop" : "start";
-    await fetch(`${API_URL}/background-traffic/${endpoint}`, { method: "POST" });
+    await fetch(`${API_URL}/background-traffic/${endpoint}`, { method: "POST", headers: authHeaders });
   };
 
   const agents = state?.agents || {};
