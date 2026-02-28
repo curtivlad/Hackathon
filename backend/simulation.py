@@ -27,6 +27,7 @@ class SimulationManager:
         }
         self._start_time = None
         self._monitor_thread = None
+        self._use_traffic_light = False
 
     def scenario_blind_intersection(self):
         self._clear_vehicles()
@@ -75,6 +76,23 @@ class SimulationManager:
         self.vehicles = [ambulance, normal_car]
         self.active_scenario = "emergency_vehicle"
 
+    def scenario_right_of_way(self):
+        """3 vehicule — prioritate de dreapta clasica, fara semafor."""
+        self._clear_vehicles()
+        configs = [
+            ("VH_N", -LANE_OFFSET,  120.0, 180.0, 10.0, "straight"),
+            ("VH_E",  120.0,  LANE_OFFSET, 270.0, 10.0, "straight"),
+            ("VH_S",  LANE_OFFSET, -120.0,   0.0, 10.0, "straight"),
+        ]
+        self.vehicles = [
+            VehicleAgent(
+                agent_id=cid, start_x=sx, start_y=sy,
+                direction=d, initial_speed=sp, intention=intent
+            )
+            for cid, sx, sy, d, sp, intent in configs
+        ]
+        self.active_scenario = "right_of_way"
+
     def scenario_multi_vehicle(self):
         self._clear_vehicles()
         configs = [
@@ -92,6 +110,49 @@ class SimulationManager:
         ]
         self.active_scenario = "multi_vehicle"
 
+    def scenario_multi_vehicle_traffic_light(self):
+        """4 vehicule cu semafor activ."""
+        self._clear_vehicles()
+        configs = [
+            ("VH_N", -LANE_OFFSET,  120.0, 180.0, 10.0, "straight"),
+            ("VH_S",  LANE_OFFSET, -120.0,   0.0,  9.0, "straight"),
+            ("VH_E",  120.0,  LANE_OFFSET, 270.0, 11.0, "straight"),
+            ("VH_W", -120.0, -LANE_OFFSET,  90.0,  8.0, "straight"),
+        ]
+        self.vehicles = [
+            VehicleAgent(
+                agent_id=cid, start_x=sx, start_y=sy,
+                direction=d, initial_speed=sp, intention=intent
+            )
+            for cid, sx, sy, d, sp, intent in configs
+        ]
+        self.active_scenario = "multi_vehicle_traffic_light"
+
+    def scenario_emergency_vehicle_no_lights(self):
+        """Ambulanta fara semafor — prioritate negociata doar prin V2X."""
+        self._clear_vehicles()
+        ambulance = VehicleAgent(
+            agent_id="AMBULANCE",
+            start_x=-120.0,
+            start_y=-LANE_OFFSET,
+            direction=90.0,
+            initial_speed=14.0,
+            target_speed=14.0,
+            intention="straight",
+            is_emergency=True,
+        )
+        normal_car = VehicleAgent(
+            agent_id="VH_C",
+            start_x=LANE_OFFSET,
+            start_y=-120.0,
+            direction=0.0,
+            initial_speed=10.0,
+            target_speed=10.0,
+            intention="straight",
+        )
+        self.vehicles = [ambulance, normal_car]
+        self.active_scenario = "emergency_vehicle_no_lights"
+
     def start(self, scenario: str = "blind_intersection"):
         if self.running:
             self.stop()
@@ -100,7 +161,10 @@ class SimulationManager:
         scenarios = {
             "blind_intersection": self.scenario_blind_intersection,
             "emergency_vehicle": self.scenario_emergency_vehicle,
+            "emergency_vehicle_no_lights": self.scenario_emergency_vehicle_no_lights,
+            "right_of_way": self.scenario_right_of_way,
             "multi_vehicle": self.scenario_multi_vehicle,
+            "multi_vehicle_traffic_light": self.scenario_multi_vehicle_traffic_light,
         }
         scenarios.get(scenario, self.scenario_blind_intersection)()
 
@@ -108,7 +172,7 @@ class SimulationManager:
         self._start_time = time.time()
         self.stats["total_vehicles"] += len(self.vehicles)
 
-        self._use_traffic_light = scenario != "blind_intersection"
+        self._use_traffic_light = scenario in ("emergency_vehicle", "multi_vehicle_traffic_light")
         if self._use_traffic_light:
             self.infrastructure.start()
         for vehicle in self.vehicles:
@@ -121,11 +185,11 @@ class SimulationManager:
         self.running = False
         for vehicle in self.vehicles:
             vehicle.stop()
-        if getattr(self, '_use_traffic_light', True):
+        if self._use_traffic_light:
             self.infrastructure.stop()
         for v in self.vehicles:
             channel.remove_agent(v.agent_id)
-        if getattr(self, '_use_traffic_light', True):
+        if self._use_traffic_light:
             channel.remove_agent(self.infrastructure.agent_id)
 
     def restart(self, scenario: Optional[str] = None):
@@ -157,11 +221,12 @@ class SimulationManager:
     def get_full_state(self) -> dict:
         all_agents = channel.to_dict()
         collision_pairs = get_collision_pairs(channel.get_all_states())
+        use_tl = self._use_traffic_light
         return {
             "scenario": self.active_scenario,
             "running": self.running,
             "agents": all_agents,
-            "infrastructure": self.infrastructure.get_state(),
+            "infrastructure": self.infrastructure.get_state() if use_tl else {},
             "collision_pairs": collision_pairs,
             "stats": self.stats,
             "timestamp": time.time(),

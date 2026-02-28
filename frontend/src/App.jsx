@@ -2,7 +2,7 @@ import React from 'react';
 import { useWebSocket } from './hooks/useWebSocket';
 import IntersectionMap from './components/IntersectionMap';
 import RiskAlert from './components/RiskAlert';
-import { ShieldCheck, ShieldAlert, Car, Settings, Activity } from 'lucide-react'; 
+import { ShieldCheck, ShieldAlert, Car, Settings, Activity } from 'lucide-react';
 
 function App() {
   const { state, connected, status, agents, collisionPairs, startScenario } = useWebSocket();
@@ -103,17 +103,47 @@ function App() {
                <Settings size={16}/> Load Scenario
              </h3>
              <div className="flex flex-col gap-3">
-               <button onClick={() => startScenario('multi_vehicle')} className="w-full bg-[#1a1a1a] hover:bg-[#00e676]/20 text-neutral-200 transition px-5 py-4 rounded-xl text-sm font-medium border border-neutral-800 hover:border-[#00e676]/50 flex justify-between items-center group">
-                 <span>4 Vehicles Traffic</span>
-                 <Activity size={16} className="text-neutral-600 group-hover:text-[#00e676] transition-colors" />
+               <button onClick={() => startScenario('right_of_way')} className="w-full bg-[#1a1a1a] hover:bg-[#00e676]/20 text-neutral-200 transition px-5 py-4 rounded-xl text-sm font-medium border border-neutral-800 hover:border-[#00e676]/50 flex flex-col items-start gap-1 group">
+                 <div className="flex w-full justify-between items-center">
+                   <span className="font-semibold">🚗 3 Vehicule — Prioritate de Dreapta</span>
+                   <Activity size={16} className="text-neutral-600 group-hover:text-[#00e676] transition-colors" />
+                 </div>
+                 <span className="text-xs text-neutral-500">Fără semafor · Regulă prioritate de dreapta</span>
                </button>
-               <button onClick={() => startScenario('blind_intersection')} className="w-full bg-[#1a1a1a] hover:bg-[#222] text-neutral-200 transition px-5 py-4 rounded-xl text-sm font-medium border border-neutral-800 hover:border-neutral-500 flex justify-between items-center group">
-                 <span>Blind Intersection</span>
-                 <Activity size={16} className="text-neutral-600 group-hover:text-white transition-colors" />
+               <button onClick={() => startScenario('multi_vehicle')} className="w-full bg-[#1a1a1a] hover:bg-[#00e676]/20 text-neutral-200 transition px-5 py-4 rounded-xl text-sm font-medium border border-neutral-800 hover:border-[#00e676]/50 flex flex-col items-start gap-1 group">
+                 <div className="flex w-full justify-between items-center">
+                   <span className="font-semibold">🚗 4 Vehicule — Prioritate de Dreapta</span>
+                   <Activity size={16} className="text-neutral-600 group-hover:text-[#00e676] transition-colors" />
+                 </div>
+                 <span className="text-xs text-neutral-500">Fără semafor · Regulă prioritate de dreapta</span>
                </button>
-               <button onClick={() => startScenario('emergency_vehicle')} className="w-full bg-[#1a1a1a] hover:bg-red-900/30 text-neutral-200 transition px-5 py-4 rounded-xl text-sm font-medium border border-neutral-800 hover:border-red-500 flex justify-between items-center group">
-                 <span>Emergency Vehicle</span>
-                 <Activity size={16} className="text-neutral-600 group-hover:text-red-400 transition-colors" />
+               <button onClick={() => startScenario('multi_vehicle_traffic_light')} className="w-full bg-[#1a1a1a] hover:bg-[#00e676]/20 text-neutral-200 transition px-5 py-4 rounded-xl text-sm font-medium border border-neutral-800 hover:border-[#00e676]/50 flex flex-col items-start gap-1 group">
+                 <div className="flex w-full justify-between items-center">
+                   <span className="font-semibold">🚦 4 Vehicule — Cu Semafor</span>
+                   <Activity size={16} className="text-neutral-600 group-hover:text-[#00e676] transition-colors" />
+                 </div>
+                 <span className="text-xs text-neutral-500">Cu semafor · Trafic controlat de semafoare</span>
+               </button>
+               <button onClick={() => startScenario('blind_intersection')} className="w-full bg-[#1a1a1a] hover:bg-[#222] text-neutral-200 transition px-5 py-4 rounded-xl text-sm font-medium border border-neutral-800 hover:border-neutral-500 flex flex-col items-start gap-1 group">
+                 <div className="flex w-full justify-between items-center">
+                   <span className="font-semibold">⚠️ Intersecție cu Vizibilitate Redusă</span>
+                   <Activity size={16} className="text-neutral-600 group-hover:text-yellow-400 transition-colors" />
+                 </div>
+                 <span className="text-xs text-neutral-500">Fără semafor · 2 vehicule, cedează B lui A</span>
+               </button>
+               <button onClick={() => startScenario('emergency_vehicle')} className="w-full bg-[#1a1a1a] hover:bg-red-900/30 text-neutral-200 transition px-5 py-4 rounded-xl text-sm font-medium border border-neutral-800 hover:border-red-500 flex flex-col items-start gap-1 group">
+                 <div className="flex w-full justify-between items-center">
+                   <span className="font-semibold">🚑 Ambulanță — Cu Semafor</span>
+                   <Activity size={16} className="text-neutral-600 group-hover:text-red-400 transition-colors" />
+                 </div>
+                 <span className="text-xs text-neutral-500">Cu semafor · Semaforul se adaptează la urgență</span>
+               </button>
+               <button onClick={() => startScenario('emergency_vehicle_no_lights')} className="w-full bg-[#1a1a1a] hover:bg-orange-900/30 text-neutral-200 transition px-5 py-4 rounded-xl text-sm font-medium border border-neutral-800 hover:border-orange-500 flex flex-col items-start gap-1 group">
+                 <div className="flex w-full justify-between items-center">
+                   <span className="font-semibold">🚑 Ambulanță — Fără Semafor</span>
+                   <Activity size={16} className="text-neutral-600 group-hover:text-orange-400 transition-colors" />
+                 </div>
+                 <span className="text-xs text-neutral-500">Fără semafor · Prioritate negociată prin V2X</span>
                </button>
              </div>
           </div>
