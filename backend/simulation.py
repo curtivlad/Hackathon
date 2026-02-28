@@ -256,6 +256,17 @@ class SimulationManager:
             prev_risks = current_risks
             if self._start_time:
                 self.stats["elapsed_time"] = round(time.time() - self._start_time, 1)
+
+            # ── SECURITATE: cleanup agenti inactivi ──
+            stale = channel.cleanup_stale_agents()
+            if stale:
+                # Opreste vehiculele corespunzatoare
+                for v in self.vehicles:
+                    if v.agent_id in stale and v._running:
+                        v.stop()
+                        self.stats.setdefault("stale_agents_removed", 0)
+                        self.stats["stale_agents_removed"] += 1
+
             time.sleep(0.5)
 
     def get_full_state(self) -> dict:
