@@ -532,6 +532,36 @@ function drawVehicle(ctx, camera, agent) {
   ctx.restore();
   ctx.shadowBlur = 0;
 
+  // ── Pull-over indicator (flashing amber outline + hazard lights) ──
+  if (agent.pulling_over) {
+    const isClearing = agent.reason === "clearing_intersection_for_emergency";
+    const flash = Math.sin(Date.now() / 150) > 0; // fast blink
+    if (flash) {
+      ctx.save();
+      ctx.translate(s.sx, s.sy);
+      ctx.rotate((agent.direction * Math.PI) / 180);
+      ctx.strokeStyle = isClearing ? "#00e5ff" : "#ffab00";
+      ctx.lineWidth = 2.5 * camera.zoom;
+      ctx.beginPath();
+      ctx.roundRect(-w / 2 - 2 * camera.zoom, -h / 2 - 2 * camera.zoom, w + 4 * camera.zoom, h + 4 * camera.zoom, 3 * camera.zoom);
+      ctx.stroke();
+      // Small dots at corners (hazard lights)
+      ctx.fillStyle = isClearing ? "#00e5ff" : "#ffab00";
+      const dotR = 1.5 * camera.zoom;
+      ctx.beginPath(); ctx.arc(-w / 2, -h / 2, dotR, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(w / 2, -h / 2, dotR, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(-w / 2, h / 2, dotR, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(w / 2, h / 2, dotR, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    if (camera.zoom > 0.5) {
+      ctx.fillStyle = isClearing ? "#00e5ff" : "#ffab00";
+      ctx.font = `bold ${Math.max(8, 9 * camera.zoom)}px monospace`;
+      ctx.textAlign = "center";
+      ctx.fillText(isClearing ? "⚡ CLEARING" : "⚠ PULL OVER", s.sx, s.sy - h - 4 * camera.zoom);
+    }
+  }
+
   if (camera.zoom > 0.6) {
     if (isDrunk) {
       ctx.fillStyle = COLORS.drunk;
