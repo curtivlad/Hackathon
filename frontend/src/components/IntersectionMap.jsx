@@ -161,14 +161,14 @@ function drawTrafficLights(ctx, phase) {
 
 
   const corners = [
-    // Top-right corner — controls NS (south-bound lane)
-    { x: CENTER + offset, y: CENTER - offset - boxH, green: phase === "NS_GREEN" },
-    // Bottom-left corner — controls NS (north-bound lane)
-    { x: CENTER - offset - boxW, y: CENTER + offset, green: phase === "NS_GREEN" },
-    // Top-left corner — controls EW (east-bound lane)
-    { x: CENTER - offset - boxW, y: CENTER - offset - boxH, green: phase === "EW_GREEN" },
-    // Bottom-right corner — controls EW (west-bound lane)
-    { x: CENTER + offset, y: CENTER + offset, green: phase === "EW_GREEN" },
+    // Top-left — for southbound (comes from north, lane on left side of screen)
+    { x: CENTER - offset - boxW, y: CENTER - offset - boxH, green: phase === "NS_GREEN" },
+    // Bottom-right — for northbound (comes from south, lane on right side of screen)
+    { x: CENTER + offset, y: CENTER + offset, green: phase === "NS_GREEN" },
+    // Top-right — for westbound (comes from east, lane on top of screen)
+    { x: CENTER + offset, y: CENTER - offset - boxH, green: phase === "EW_GREEN" },
+    // Bottom-left — for eastbound (comes from west, lane on bottom of screen)
+    { x: CENTER - offset - boxW, y: CENTER + offset, green: phase === "EW_GREEN" },
   ];
 
   corners.forEach(({ x, y, green }) => {

@@ -8,11 +8,11 @@ from v2x_channel import V2XMessage
 
 INTERSECTION_CENTER = (0.0, 0.0)
 INTERSECTION_RADIUS = 30.0
-DANGER_ZONE_RADIUS = 60.0
+DANGER_ZONE_RADIUS = 120.0
 
-TTC_COLLISION = 2.0
-TTC_HIGH = 4.0
-TTC_MEDIUM = 7.0
+TTC_COLLISION = 3.0
+TTC_HIGH = 6.0
+TTC_MEDIUM = 10.0
 
 
 def distance(x1: float, y1: float, x2: float, y2: float) -> float:
@@ -70,7 +70,22 @@ def compute_ttc(agent1: V2XMessage, agent2: V2XMessage) -> float:
     return dist / (-dot)
 
 
+def _are_on_same_road_opposite_dirs(a1: V2XMessage, a2: V2XMessage) -> bool:
+    """Doua masini pe acelasi drum dar in sensuri opuse = benzi separate, nu se ciocnesc."""
+    r1 = math.radians(a1.direction)
+    r2 = math.radians(a2.direction)
+    ax1 = "NS" if abs(math.cos(r1)) >= abs(math.sin(r1)) else "EW"
+    ax2 = "NS" if abs(math.cos(r2)) >= abs(math.sin(r2)) else "EW"
+    if ax1 != ax2:
+        return False
+    angle_diff = abs(a1.direction - a2.direction) % 360
+    return abs(angle_diff - 180) < 10
+
+
 def assess_intersection_risk(agent1: V2XMessage, agent2: V2XMessage) -> str:
+    if _are_on_same_road_opposite_dirs(agent1, agent2):
+        return "low"
+
     t1 = time_to_intersection(agent1)
     t2 = time_to_intersection(agent2)
 
@@ -81,11 +96,11 @@ def assess_intersection_risk(agent1: V2XMessage, agent2: V2XMessage) -> str:
     dist = distance(agent1.x, agent1.y, agent2.x, agent2.y)
     ttc = compute_ttc(agent1, agent2)
 
-    if ttc <= TTC_COLLISION or (delta_t < 1.5 and dist < INTERSECTION_RADIUS * 2):
+    if ttc <= TTC_COLLISION or (delta_t < 2.0 and dist < DANGER_ZONE_RADIUS):
         return "collision"
-    elif ttc <= TTC_HIGH or (delta_t < 3.0 and dist < DANGER_ZONE_RADIUS):
+    elif ttc <= TTC_HIGH or (delta_t < 4.0 and dist < DANGER_ZONE_RADIUS):
         return "high"
-    elif ttc <= TTC_MEDIUM or delta_t < 5.0:
+    elif ttc <= TTC_MEDIUM or delta_t < 6.0:
         return "medium"
     else:
         return "low"
