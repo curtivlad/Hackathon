@@ -25,10 +25,10 @@ from llm_brain import LLMBrain, LLM_ENABLED
 
 logger = logging.getLogger("agents")
 
-MAX_SPEED = 14.0
-ACCELERATION = 2.0
-DECELERATION = 6.0
-UPDATE_INTERVAL = 0.1
+MAX_SPEED = 25.0
+ACCELERATION = 4.0
+DECELERATION = 10.0
+UPDATE_INTERVAL = 0.05
 STOP_LINE = 35.0
 
 # Drunk driver erratic behavior parameters
@@ -56,10 +56,12 @@ class VehicleAgent:
         self.intention = intention
         self.is_emergency = is_emergency
         self.is_drunk = is_drunk
+        if self.is_emergency:
+            self.target_speed = MAX_SPEED
         self.decision = "go"
         self.risk_level = "low"
         self.reason = "clear"
-        self.recommended_speed = initial_speed
+        self.recommended_speed = MAX_SPEED if self.is_emergency else initial_speed
         self._running = False
         self._thread = None
         self._passed_intersection = False
@@ -76,6 +78,11 @@ class VehicleAgent:
         self._fallback_history = []
         self._fallback_consecutive = 0
         self._fallback_last_action = None
+
+        self._drunk_phase = random.uniform(0, 2 * math.pi)
+        self._drunk_next_erratic = time.time() + random.uniform(3.0, 6.0)
+        self._drunk_erratic_end = 0.0
+        self._drunk_erratic_speed = 0.0
 
     # ──────────────────────── Helpers ────────────────────────
 
@@ -178,6 +185,35 @@ class VehicleAgent:
             })
         return result
 
+    # ──────────────────────── Emergency rear-collision avoidance ────────────────────────
+
+    def _emergency_rear_collision_speed(self):
+        nearby = self._get_nearby_vehicles_info()
+        rad = math.radians(self.direction)
+        dx_fwd = math.sin(rad)
+        dy_fwd = math.cos(rad)
+        for o in nearby:
+            rel_x = o["x"] - self.x
+            rel_y = o["y"] - self.y
+            proj = rel_x * dx_fwd + rel_y * dy_fwd
+            if proj < 0 or proj > 30:
+                continue
+            perp = abs(rel_x * (-dy_fwd) + rel_y * dx_fwd)
+            if perp > 8:
+                continue
+            dir_diff = abs(((o["direction"] - self.direction + 180) % 360) - 180)
+            if dir_diff > 45:
+                continue
+            if o["speed"] < self.speed * 0.5:
+                gap = proj
+                safe_margin = 5.0
+                stopping_dist = max(0, gap - safe_margin)
+                if stopping_dist < 0.5:
+                    return max(o["speed"], 0.0)
+                v_safe = math.sqrt(max(0, o["speed"] ** 2 + 2 * DECELERATION * stopping_dist))
+                return min(v_safe, MAX_SPEED)
+        return MAX_SPEED
+
     # ──────────────────────── Decision Making (LLM + Adaptive Fallback) ────────────────────────
 
     def _make_decision(self):
@@ -197,6 +233,14 @@ class VehicleAgent:
 
         # Broadcast V2X alerts based on current state
         self._send_situational_v2x_alerts()
+
+        if self.is_emergency:
+            self.decision = "go"
+            self.reason = "emergency_override"
+            self.recommended_speed = self._emergency_rear_collision_speed()
+            self._fallback_consecutive = 0
+            self._fallback_last_action = None
+            return
 
         # ── Drunk driver: erratic behavior ──
         if self.is_drunk:
@@ -250,11 +294,6 @@ class VehicleAgent:
                 if self._entered_intersection:
                     self.decision = "go"
                     self.recommended_speed = max(self.recommended_speed, self.target_speed * 0.5)
-
-                # Emergency override
-                if self.is_emergency:
-                    self.decision = "go"
-                    self.recommended_speed = MAX_SPEED
 
                 return
 
@@ -469,10 +508,6 @@ class VehicleAgent:
         msg = self._build_message()
         self.recommended_speed = compute_recommended_speed(msg, self.decision, self.target_speed)
 
-        if self.is_emergency:
-            self.decision = "go"
-            self.recommended_speed = MAX_SPEED
-
         if self._entered_intersection:
             self.decision = "go"
             self.recommended_speed = self.target_speed
@@ -533,10 +568,25 @@ class VehicleAgent:
                 self._entered_intersection = True
 
     def _adjust_speed(self):
+        if self.is_drunk:
+            now = time.time()
+            self.recommended_speed += 4.0 * math.sin(now * 1.5 + self._drunk_phase)
+            if now >= self._drunk_next_erratic:
+                self._drunk_erratic_speed = random.choice([
+                    random.uniform(2.0, 5.0),
+                    random.uniform(MAX_SPEED * 0.9, MAX_SPEED),
+                ])
+                self._drunk_erratic_end = now + random.uniform(0.5, 1.5)
+                self._drunk_next_erratic = self._drunk_erratic_end + random.uniform(3.0, 6.0)
+            if now < self._drunk_erratic_end:
+                self.recommended_speed = self._drunk_erratic_speed
+            self.recommended_speed = max(0.0, min(self.recommended_speed, MAX_SPEED))
         if self.speed < self.recommended_speed:
             self.speed = min(self.speed + ACCELERATION * UPDATE_INTERVAL, self.recommended_speed)
         elif self.speed > self.recommended_speed:
             self.speed = max(self.speed - DECELERATION * UPDATE_INTERVAL, self.recommended_speed)
+        if self.is_drunk:
+            self.speed = max(0.0, min(self.speed, MAX_SPEED))
 
     # ──────────────────────── Message ────────────────────────
 
