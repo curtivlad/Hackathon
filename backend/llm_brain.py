@@ -395,6 +395,16 @@ COLLISION AVOIDANCE:
 - If TTC < 3 seconds with any vehicle, take evasive action (brake hard).
 - If TTC < 6 seconds, reduce speed significantly.
 
+FOLLOWING DISTANCE (CRITICAL — rear-end collision prevention):
+- If a vehicle is AHEAD of you in your lane (ahead_in_my_lane=True), you MUST maintain a safe following distance.
+- The "gap" field shows the distance in meters to the vehicle ahead.
+- If gap < 5 meters: STOP or match the leader's speed exactly. Set speed = leader's speed or 0 if stopped.
+- If gap < 15 meters: BRAKE and reduce speed to be close to the leader's speed. Slow down proportionally.
+- If gap < 30 meters: Gradually adjust speed to not exceed leader's speed + small margin.
+- If the vehicle ahead is STOPPED (speed=0), you MUST decelerate and stop before reaching it.
+- NEVER accelerate towards a slower/stopped vehicle ahead in your lane.
+- This takes PRIORITY over other decisions — even if the path is "clear", respect following distance.
+
 MEMORY & ADAPTATION:
 - You have access to your recent decision history. Use it to maintain consistency and adapt.
 - If a previous decision led to a risky situation (near-miss), be MORE cautious in similar scenarios.
@@ -446,14 +456,18 @@ def build_situation_prompt(
     if others:
         parts.append(f"\nNEARBY VEHICLES ({len(others)}):")
         for o in others:
-            parts.append(
+            line = (
                 f"  - {o['id']}: pos=({o['x']:.1f},{o['y']:.1f}), speed={o['speed']:.1f} m/s, "
-                f"heading={o['direction']}°, intention={o['intention']}, "
+                f"heading={o['direction']}\u00b0, intention={o['intention']}, "
                 f"emergency={o.get('is_emergency', False)}, "
                 f"distance_to_me={o.get('dist', 0):.1f}, "
                 f"ttc={o.get('ttc', 'inf')}, "
                 f"their_decision={o.get('decision', 'unknown')}"
             )
+            # Add following info if this vehicle is ahead in our lane
+            if o.get('ahead_in_my_lane'):
+                line += f", AHEAD_IN_MY_LANE=YES, gap={o.get('gap', '?')}m"
+            parts.append(line)
     else:
         parts.append("\nNo other vehicles detected nearby.")
 

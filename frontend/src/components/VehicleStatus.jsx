@@ -3,6 +3,7 @@ import React from "react";
 const DECISION_COLORS = {
   go: "#00e676",
   yield: "#ffeb3b",
+  brake: "#ff9800",
   stop: "#f44336",
 };
 
@@ -14,9 +15,12 @@ const RISK_COLORS = {
 };
 
 function VehicleCard({ agent }) {
-  const decisionColor = agent.is_drunk ? "#FF69B4" : (DECISION_COLORS[agent.decision] || "#aaa");
-  const riskColor = RISK_COLORS[agent.risk_level] || "#aaa";
   const speedKmh = (agent.speed * 3.6).toFixed(1);
+  const effectiveDecision = (agent.decision === "brake" || agent.decision === "stop")
+    ? (parseFloat(speedKmh) > 5 ? "brake" : "stop")
+    : agent.decision;
+  const decisionColor = agent.is_drunk ? "#FF69B4" : (DECISION_COLORS[effectiveDecision] || "#aaa");
+  const riskColor = RISK_COLORS[agent.risk_level] || "#aaa";
 
   return (
     <div style={{
@@ -40,7 +44,7 @@ function VehicleCard({ agent }) {
           fontWeight: "bold",
           fontFamily: "monospace",
         }}>
-          {agent.decision?.toUpperCase()}
+          {effectiveDecision?.toUpperCase()}
         </span>
       </div>
 
@@ -87,9 +91,12 @@ function Stat({ label, value, valueColor }) {
 }
 
 function VehicleCardCompact({ agent }) {
-  const decisionColor = agent.is_drunk ? "#FF69B4" : (DECISION_COLORS[agent.decision] || "#aaa");
-  const riskColor = RISK_COLORS[agent.risk_level] || "#aaa";
   const speedKmh = (agent.speed * 3.6).toFixed(0);
+  const effectiveDecision = (agent.decision === "brake" || agent.decision === "stop")
+    ? (parseFloat(speedKmh) > 5 ? "brake" : "stop")
+    : agent.decision;
+  const decisionColor = agent.is_drunk ? "#FF69B4" : (DECISION_COLORS[effectiveDecision] || "#aaa");
+  const riskColor = RISK_COLORS[agent.risk_level] || "#aaa";
 
   return (
     <div style={{
@@ -125,7 +132,7 @@ function VehicleCardCompact({ agent }) {
           fontWeight: "bold",
           fontFamily: "monospace",
         }}>
-          {agent.decision?.toUpperCase()}
+          {effectiveDecision?.toUpperCase()}
         </span>
         {agent.reason && agent.reason !== "clear" && agent.reason !== "waypoint" && (
           <span style={{ color: "#555", fontFamily: "monospace", fontSize: "9px" }}>
@@ -139,13 +146,13 @@ function VehicleCardCompact({ agent }) {
 
 export default function VehicleStatus({ agents = {}, infrastructure = {} }) {
   const vehicles = Object.values(agents).filter(
-    a => a.agent_type === "vehicle" && !a.agent_id?.startsWith("BG_") && !a.is_drunk
+    a => a.agent_type === "vehicle" && !a.agent_id?.startsWith("BG_") && !a.agent_id?.startsWith("AMBULANCE_") && !a.is_drunk
   );
   const drunkVehicles = Object.values(agents).filter(
     a => a.agent_type === "vehicle" && a.is_drunk
   );
   const bgVehicles = Object.values(agents).filter(
-    a => a.agent_type === "vehicle" && a.agent_id?.startsWith("BG_") && !a.is_drunk
+    a => a.agent_type === "vehicle" && (a.agent_id?.startsWith("BG_") || a.agent_id?.startsWith("AMBULANCE_")) && !a.is_drunk
   );
 
   return (

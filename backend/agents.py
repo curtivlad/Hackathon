@@ -159,9 +159,13 @@ class VehicleAgent:
     # ──────────────────────── Nearby vehicles for LLM ────────────────────────
 
     def _get_nearby_vehicles_info(self):
-        """Construieste lista cu informatii despre vehiculele din jur pentru LLM."""
+        """Construieste lista cu informatii despre vehiculele din jur pentru LLM.
+        Include metadata suplimentara: ahead_in_my_lane, gap (distanta frontala)."""
         others = channel.get_other_agents(self.agent_id)
         my_msg = self._build_message()
+        rad = math.radians(self.direction)
+        fwd_x = math.sin(rad)
+        fwd_y = math.cos(rad)
         result = []
         for agent_id, msg in others.items():
             if msg.agent_type != "vehicle":
@@ -171,7 +175,16 @@ class VehicleAgent:
                 continue
             ttc = compute_ttc(my_msg, msg)
             ttc_str = f"{ttc:.1f}s" if ttc < 999 else "inf"
-            result.append({
+
+            # ── Detect if vehicle is directly ahead in the same lane ──
+            rel_x = msg.x - self.x
+            rel_y = msg.y - self.y
+            proj = rel_x * fwd_x + rel_y * fwd_y   # forward distance
+            perp = abs(rel_x * (-fwd_y) + rel_y * fwd_x)  # lateral offset
+            dir_diff = abs(((msg.direction - self.direction + 180) % 360) - 180)
+            is_ahead = proj > 0 and proj < 45 and perp < 8 and dir_diff < 35
+
+            entry = {
                 "id": msg.agent_id,
                 "x": msg.x,
                 "y": msg.y,
@@ -183,37 +196,85 @@ class VehicleAgent:
                 "dist": dist,
                 "ttc": ttc_str,
                 "decision": msg.decision,  # ce decizie a luat celalalt agent
-            })
+                "ahead_in_my_lane": is_ahead,
+                "gap": round(proj, 1) if is_ahead else None,
+            }
+            result.append(entry)
         return result
 
-    # ──────────────────────── Emergency rear-collision avoidance ────────────────────────
+    # ──────────────────────── Following-distance rear-collision avoidance ────────────────────────
 
-    def _emergency_rear_collision_speed(self):
+    def _compute_following_speed(self):
+        """
+        Compute safe following speed when a vehicle is ahead in the same lane.
+        Works for ALL vehicles (emergency, normal, background).
+        Returns the maximum safe speed; the caller should cap recommended_speed to this.
+
+        Logic:
+        - Detect vehicles ahead in the same lane (within ±10 units perp, ±45° heading).
+        - If gap <= MIN_FOLLOW_GAP (5m): match leader speed exactly (or 0 if stopped).
+        - If gap <= 2x MIN_FOLLOW_GAP: blend towards leader speed with proportional approach.
+        - Otherwise: physics-based safe speed v = sqrt(v_leader² + 2·decel·(gap - margin)).
+        - Always returns the MINIMUM over all vehicles ahead.
+        """
         nearby = self._get_nearby_vehicles_info()
         rad = math.radians(self.direction)
         dx_fwd = math.sin(rad)
         dy_fwd = math.cos(rad)
+
+        MIN_FOLLOW_GAP = 15.0   # absolute minimum gap (meters)
+        COMFORT_GAP = 20.0      # comfortable following gap
+        DETECT_RANGE = 45.0     # how far ahead to look
+        PERP_TOLERANCE = 8.0    # lateral tolerance for same-lane
+        DIR_TOLERANCE = 35.0    # heading tolerance (degrees)
+
+        min_safe_speed = MAX_SPEED
+
         for o in nearby:
             rel_x = o["x"] - self.x
             rel_y = o["y"] - self.y
+
+            # Project onto forward direction → how far ahead
             proj = rel_x * dx_fwd + rel_y * dy_fwd
-            if proj < 0 or proj > 30:
-                continue
+            if proj < 0 or proj > DETECT_RANGE:
+                continue  # behind us or too far ahead
+
+            # Perpendicular distance → same lane check
             perp = abs(rel_x * (-dy_fwd) + rel_y * dx_fwd)
-            if perp > 8:
-                continue
+            if perp > PERP_TOLERANCE:
+                continue  # different lane
+
+            # Heading similarity → same direction check
             dir_diff = abs(((o["direction"] - self.direction + 180) % 360) - 180)
-            if dir_diff > 45:
-                continue
-            if o["speed"] < self.speed * 0.5:
-                gap = proj
-                safe_margin = 5.0
-                stopping_dist = max(0, gap - safe_margin)
-                if stopping_dist < 0.5:
-                    return max(o["speed"], 0.0)
-                v_safe = math.sqrt(max(0, o["speed"] ** 2 + 2 * DECELERATION * stopping_dist))
-                return min(v_safe, MAX_SPEED)
-        return MAX_SPEED
+            if dir_diff > DIR_TOLERANCE:
+                continue  # facing different direction
+
+            # ── Vehicle is ahead, same lane, same direction ──
+            gap = proj
+            leader_speed = o["speed"]
+
+            if gap <= MIN_FOLLOW_GAP:
+                # Critically close → match leader speed or stop
+                safe_speed = min(leader_speed, max(leader_speed * 0.8, 0.0))
+            elif gap <= COMFORT_GAP:
+                # Close range → gradually reduce to leader speed
+                # Linear interpolation: at MIN_FOLLOW_GAP → leader_speed,
+                #                       at COMFORT_GAP → target_speed
+                ratio = (gap - MIN_FOLLOW_GAP) / (COMFORT_GAP - MIN_FOLLOW_GAP)  # 0→1
+                safe_speed = leader_speed + ratio * max(0, self.target_speed - leader_speed)
+                # But never exceed a physics-safe limit
+                braking_dist = max(0, gap - MIN_FOLLOW_GAP)
+                v_physics = math.sqrt(max(0, leader_speed ** 2 + 2 * DECELERATION * braking_dist))
+                safe_speed = min(safe_speed, v_physics)
+            else:
+                # Far range → physics-based: can we stop in time if leader brakes?
+                braking_dist = max(0, gap - MIN_FOLLOW_GAP)
+                safe_speed = math.sqrt(max(0, leader_speed ** 2 + 2 * DECELERATION * braking_dist))
+
+            safe_speed = max(0.0, min(safe_speed, MAX_SPEED))
+            min_safe_speed = min(min_safe_speed, safe_speed)
+
+        return min_safe_speed
 
     # ──────────────────────── Decision Making (LLM + Adaptive Fallback) ────────────────────────
 
@@ -238,7 +299,7 @@ class VehicleAgent:
         if self.is_emergency:
             self.decision = "go"
             self.reason = "emergency_override"
-            self.recommended_speed = self._emergency_rear_collision_speed()
+            self.recommended_speed = self._compute_following_speed()
             self._fallback_consecutive = 0
             self._fallback_last_action = None
             return
@@ -290,6 +351,19 @@ class VehicleAgent:
                                 self.recommended_speed,
                                 max(1.5, self.target_speed * (dist_to_stop / 20.0))
                             )
+
+                # ── Safety override: following distance ──
+                # Even if LLM says "go", cap speed to safe following distance
+                following_cap = self._compute_following_speed()
+                if following_cap < self.recommended_speed:
+                    self.recommended_speed = following_cap
+                    if following_cap < 0.5:
+                        self.decision = "stop"
+                        self.reason = "following_vehicle_stopped"
+                    elif following_cap < self.target_speed * 0.5:
+                        self.decision = "brake"
+                        if "follow" not in self.reason:
+                            self.reason = "following_too_close"
 
                 # Daca e deja in intersectie, nu te opri
                 if self._entered_intersection:
@@ -509,9 +583,21 @@ class VehicleAgent:
         msg = self._build_message()
         self.recommended_speed = compute_recommended_speed(msg, self.decision, self.target_speed)
 
+        # ── Safety override: following distance ──
+        following_cap = self._compute_following_speed()
+        if following_cap < self.recommended_speed:
+            self.recommended_speed = following_cap
+            if following_cap < 0.5:
+                self.decision = "stop"
+                self.reason = "following_vehicle_stopped"
+            elif following_cap < self.target_speed * 0.5:
+                self.decision = "brake"
+                if "follow" not in self.reason:
+                    self.reason = "following_too_close"
+
         if self._entered_intersection:
             self.decision = "go"
-            self.recommended_speed = self.target_speed
+            self.recommended_speed = max(self.recommended_speed, self.target_speed * 0.5)
 
         self._record_fallback_decision(self.decision, self.reason)
 
@@ -662,11 +748,13 @@ class VehicleAgent:
             o_rad = math.radians(other_msg.direction)
             o_axis = "NS" if abs(math.cos(o_rad)) >= abs(math.sin(o_rad)) else "EW"
             if my_axis == o_axis:
+                # Same axis — check if they're on separate lanes (no collision possible)
+                perp_dist = abs(self.x - other_msg.x) if my_axis == "NS" else abs(self.y - other_msg.y)
+                if perp_dist > 12.0:
+                    continue  # different lanes on same axis — no collision risk
                 angle_diff = abs(self.direction - other_msg.direction) % 360
                 if abs(angle_diff - 180) < 15:
-                    perp_dist = abs(self.x - other_msg.x) if my_axis == "NS" else abs(self.y - other_msg.y)
-                    if perp_dist < 25.0:
-                        continue  # genuinely opposite directions on same road
+                    continue  # opposite directions on same road — separate lanes
             ttc = compute_ttc(my_msg, other_msg)
             if ttc < 3.0:
                 self.risk_level = "collision"
@@ -715,10 +803,19 @@ class VehicleAgent:
             if d > 150:
                 continue
 
-            # ── Same-lane, same-direction: follow the leader ──
+            # ── Skip vehicles on same axis but different lanes (no collision outside intersection) ──
             my_axis = self._get_movement_axis()
             o_rad = math.radians(other_msg.direction)
             o_axis = "NS" if abs(math.cos(o_rad)) >= abs(math.sin(o_rad)) else "EW"
+            if my_axis == o_axis:
+                perp_dist = abs(self.x - other_msg.x) if my_axis == "NS" else abs(self.y - other_msg.y)
+                if perp_dist > 12.0:
+                    continue  # different lanes on same axis — ignore completely
+                angle_diff_check = abs(self.direction - other_msg.direction) % 360
+                if abs(angle_diff_check - 180) < 15:
+                    continue  # opposite direction on same road — separate lanes
+
+            # ── Same-lane, same-direction: follow the leader ──
             angle_diff = abs(self.direction - other_msg.direction) % 360
             same_dir = angle_diff < 30 or angle_diff > 330
 
@@ -730,14 +827,15 @@ class VehicleAgent:
                 dx = other_msg.x - self.x
                 dy = other_msg.y - self.y
                 dot = fwd_x * dx + fwd_y * dy
-                if dot > 0:  # other is ahead
+                if dot > 0:  # other is ahead, same lane (perp already checked above)
                     # Follow: match speed, keep distance
+                    gap = dot  # forward distance (not euclidean)
                     safe_dist = 25.0
-                    if d < safe_dist:
+                    if gap < safe_dist:
                         self.decision = "brake"
                         self.reason = "following"
                         self.recommended_speed = max(0.0, other_msg.speed * 0.7)
-                    elif d < safe_dist * 2:
+                    elif gap < safe_dist * 2:
                         self.decision = "go"
                         self.reason = "following"
                         self.recommended_speed = min(self.target_speed, other_msg.speed)
@@ -976,6 +1074,18 @@ class VehicleAgent:
                 self._bg_drunk_erratic_decision()
             else:
                 self._bg_compute_risk_and_decision()
+
+            # ── Safety override: following distance for background traffic ──
+            following_cap = self._compute_following_speed()
+            if following_cap < self.recommended_speed:
+                self.recommended_speed = following_cap
+                if following_cap < 0.5:
+                    self.decision = "stop"
+                    self.reason = "following_vehicle_stopped"
+                elif following_cap < self.target_speed * 0.5:
+                    self.decision = "brake"
+                    if "follow" not in self.reason:
+                        self.reason = "following_too_close"
 
             # ── Turn speed reduction: slow down when approaching a corner ──
             if len(self._waypoints) >= 2 and not self.is_drunk:
