@@ -2,6 +2,15 @@
 main.py — Server FastAPI cu API REST si WebSocket pentru frontend.
 """
 
+import sys, os, glob, importlib
+sys.dont_write_bytecode = True
+for pyc in glob.glob(os.path.join(os.path.dirname(__file__), "__pycache__", "*.pyc")):
+    try:
+        os.remove(pyc)
+    except Exception:
+        pass
+importlib.invalidate_caches()
+
 import asyncio
 from typing import Set
 
@@ -107,4 +116,4 @@ def get_history(last_n: int = 50):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000)

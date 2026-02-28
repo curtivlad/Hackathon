@@ -12,7 +12,7 @@ from collision_detector import distance, INTERSECTION_CENTER, get_collision_pair
 UPDATE_INTERVAL = 0.1
 DECELERATION = 4.0
 MAX_SPEED = 14.0
-PHASE_DURATION = 10.0
+PHASE_DURATION = 15.0
 EMERGENCY_PHASE = 15.0
 STOP_LINE_DIST = 25.0
 SLOW_ZONE_DIST = 50.0
@@ -72,6 +72,18 @@ class InfrastructureAgent:
                 return get_movement_axis(agent)
         return None
 
+    def _vehicles_in_intersection(self, all_states: Dict[str, V2XMessage]) -> bool:
+        green_axis = self._get_green_axis()
+        for agent in all_states.values():
+            if agent.agent_type != "vehicle":
+                continue
+            axis = get_movement_axis(agent)
+            if axis != green_axis:
+                continue
+            if abs(agent.x) < 35.0 and abs(agent.y) < 35.0:
+                return True
+        return False
+
     def _update_phase(self, all_states: Dict[str, V2XMessage]):
         emergency_axis = self._detect_emergency(all_states)
 
@@ -98,6 +110,8 @@ class InfrastructureAgent:
 
             self.phase_timer += UPDATE_INTERVAL
             if self.phase_timer >= self.phase_duration:
+                if self._vehicles_in_intersection(all_states):
+                    return
                 self.phase_timer = 0.0
                 self.phase = "EW_GREEN" if self.phase == "NS_GREEN" else "NS_GREEN"
                 self.stats["phase_changes"] += 1
