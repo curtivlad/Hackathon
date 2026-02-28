@@ -81,7 +81,63 @@ function drawCityGrid(ctx, camera, grid) {
   const minY = Math.min(...yCoords);
   const maxY = Math.max(...yCoords);
 
-  // ── Draw vertical roads (columns) — clipped to grid bounds (no stubs) ──
+  const mapMargin = 12;
+  const borderRadius = 18 * camera.zoom;
+  const mapTL = worldToScreen(minX - HALF_ROAD, maxY + HALF_ROAD, camera);
+  const mapBR = worldToScreen(maxX + HALF_ROAD, minY - HALF_ROAD, camera);
+  const mapX = mapTL.sx - mapMargin;
+  const mapY = mapTL.sy - mapMargin;
+  const mapW = mapBR.sx - mapTL.sx + mapMargin * 2;
+  const mapH = mapBR.sy - mapTL.sy + mapMargin * 2;
+  const clampedRadius = Math.min(borderRadius, mapW / 2, mapH / 2);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(mapTL.sx, mapTL.sy, mapBR.sx - mapTL.sx, mapBR.sy - mapTL.sy, clampedRadius);
+  ctx.clip();
+
+  const cwClear = HALF_ROAD + 8 + 10 + 2 + 0.6 + 4;
+
+  function drawSegmentedDashes(ctx, camera, fixedCoord, isVertical, roadStart, roadEnd, crossings) {
+    const zones = crossings.map(c => ({ lo: c - cwClear, hi: c + cwClear }));
+    zones.sort((a, b) => a.lo - b.lo);
+
+    const segments = [];
+    let cursor = roadStart;
+    for (const z of zones) {
+      if (z.lo > cursor) segments.push({ start: cursor, end: z.lo });
+      cursor = Math.max(cursor, z.hi);
+    }
+    if (cursor < roadEnd) segments.push({ start: cursor, end: roadEnd });
+
+    const dashUnit = 6;
+    for (const seg of segments) {
+      const len = seg.end - seg.start;
+      if (len < 2) continue;
+      const numDashes = Math.max(1, Math.round(len / (dashUnit * 2)));
+      const actualDash = (len / numDashes) / 2;
+      const pxDash = actualDash * camera.zoom;
+      ctx.setLineDash([pxDash, pxDash]);
+
+      if (isVertical) {
+        const a = worldToScreen(fixedCoord, seg.end, camera);
+        const b = worldToScreen(fixedCoord, seg.start, camera);
+        ctx.beginPath();
+        ctx.moveTo(a.sx, a.sy);
+        ctx.lineTo(b.sx, b.sy);
+        ctx.stroke();
+      } else {
+        const a = worldToScreen(seg.start, fixedCoord, camera);
+        const b = worldToScreen(seg.end, fixedCoord, camera);
+        ctx.beginPath();
+        ctx.moveTo(a.sx, a.sy);
+        ctx.lineTo(b.sx, b.sy);
+        ctx.stroke();
+      }
+    }
+    ctx.setLineDash([]);
+  }
+
   for (const ix of xCoords) {
     const left = worldToScreen(ix - HALF_ROAD, 0, camera);
     const right = worldToScreen(ix + HALF_ROAD, 0, camera);
@@ -98,17 +154,11 @@ function drawCityGrid(ctx, camera, grid) {
     ctx.moveTo(right.sx, top.sy); ctx.lineTo(right.sx, bot.sy);
     ctx.stroke();
 
-    const center = worldToScreen(ix, 0, camera);
     ctx.strokeStyle = COLORS.laneDivider;
     ctx.lineWidth = Math.max(1, 2 * camera.zoom);
-    ctx.setLineDash([12 * camera.zoom, 12 * camera.zoom]);
-    ctx.beginPath();
-    ctx.moveTo(center.sx, top.sy); ctx.lineTo(center.sx, bot.sy);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    drawSegmentedDashes(ctx, camera, ix, true, minY - HALF_ROAD, maxY + HALF_ROAD, yCoords);
   }
 
-  // ── Draw horizontal roads (rows) — clipped to grid bounds (no stubs) ──
   for (const iy of yCoords) {
     const top = worldToScreen(0, iy + HALF_ROAD, camera);
     const bot = worldToScreen(0, iy - HALF_ROAD, camera);
@@ -125,14 +175,9 @@ function drawCityGrid(ctx, camera, grid) {
     ctx.moveTo(left.sx, bot.sy); ctx.lineTo(right.sx, bot.sy);
     ctx.stroke();
 
-    const center = worldToScreen(0, iy, camera);
     ctx.strokeStyle = COLORS.laneDivider;
     ctx.lineWidth = Math.max(1, 2 * camera.zoom);
-    ctx.setLineDash([12 * camera.zoom, 12 * camera.zoom]);
-    ctx.beginPath();
-    ctx.moveTo(left.sx, center.sy); ctx.lineTo(right.sx, center.sy);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    drawSegmentedDashes(ctx, camera, iy, false, minX - HALF_ROAD, maxX + HALF_ROAD, xCoords);
   }
 
   // ── Fill corner patches to close the perimeter square ──
@@ -150,15 +195,102 @@ function drawCityGrid(ctx, camera, grid) {
     drawBuildings(ctx, camera, xCoords, yCoords);
   }
 
+  const bounds = { minX, maxX, minY, maxY };
   for (const inter of intersections) {
-    drawIntersectionDetail(ctx, camera, inter.x, inter.y);
+    drawIntersectionDetail(ctx, camera, inter.x, inter.y, bounds);
   }
+
+  ctx.restore();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.12)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(mapX, mapY, mapW, mapH, clampedRadius + mapMargin * 0.3);
+  ctx.stroke();
 }
 
 function drawBuildings(ctx, camera, xCoords, yCoords) {
   const pad = 8;
+  const sidewalkColor = "#2a2a2a";
+  const sidewalkEdge = "#3a3a3a";
+  const curbColor = "#444";
 
-  // Collect all block rectangles (world coords)
+  for (let i = 0; i < xCoords.length - 1; i++) {
+    for (let j = 0; j < yCoords.length - 1; j++) {
+      const swLeft = xCoords[i] + HALF_ROAD;
+      const swRight = xCoords[i + 1] - HALF_ROAD;
+      const swBottom = yCoords[j] + HALF_ROAD;
+      const swTop = yCoords[j + 1] - HALF_ROAD;
+      if (swRight <= swLeft || swTop <= swBottom) continue;
+
+      const tl = worldToScreen(swLeft, swTop, camera);
+      const br = worldToScreen(swRight, swBottom, camera);
+      const w = br.sx - tl.sx;
+      const h = br.sy - tl.sy;
+
+      ctx.fillStyle = sidewalkColor;
+      ctx.fillRect(tl.sx, tl.sy, w, h);
+
+      ctx.strokeStyle = sidewalkEdge;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(tl.sx, tl.sy, w, h);
+
+      if (camera.zoom > 0.5) {
+        const padPx = pad * camera.zoom;
+        ctx.strokeStyle = curbColor;
+        ctx.lineWidth = Math.max(1, 1.5 * camera.zoom);
+        ctx.beginPath();
+        ctx.moveTo(tl.sx + padPx, tl.sy);
+        ctx.lineTo(tl.sx + padPx, tl.sy + h);
+        ctx.moveTo(br.sx - padPx, tl.sy);
+        ctx.lineTo(br.sx - padPx, tl.sy + h);
+        ctx.moveTo(tl.sx, tl.sy + padPx);
+        ctx.lineTo(tl.sx + w, tl.sy + padPx);
+        ctx.moveTo(tl.sx, br.sy - padPx);
+        ctx.lineTo(tl.sx + w, br.sy - padPx);
+        ctx.stroke();
+
+        const tileSize = 8 * camera.zoom;
+        if (tileSize > 3) {
+          ctx.strokeStyle = "rgba(255,255,255,0.04)";
+          ctx.lineWidth = 0.5;
+          ctx.beginPath();
+          for (let tx = tl.sx; tx < tl.sx + padPx; tx += tileSize) {
+            ctx.moveTo(tx, tl.sy);
+            ctx.lineTo(tx, tl.sy + h);
+          }
+          for (let ty = tl.sy; ty < tl.sy + h; ty += tileSize) {
+            ctx.moveTo(tl.sx, ty);
+            ctx.lineTo(tl.sx + padPx, ty);
+          }
+          for (let tx = br.sx - padPx; tx < br.sx; tx += tileSize) {
+            ctx.moveTo(tx, tl.sy);
+            ctx.lineTo(tx, tl.sy + h);
+          }
+          for (let ty = tl.sy; ty < tl.sy + h; ty += tileSize) {
+            ctx.moveTo(br.sx - padPx, ty);
+            ctx.lineTo(br.sx, ty);
+          }
+          for (let tx = tl.sx + padPx; tx < br.sx - padPx; tx += tileSize) {
+            ctx.moveTo(tx, tl.sy);
+            ctx.lineTo(tx, tl.sy + padPx);
+            ctx.moveTo(tx, br.sy - padPx);
+            ctx.lineTo(tx, br.sy);
+          }
+          for (let ty = tl.sy; ty < tl.sy + padPx; ty += tileSize) {
+            ctx.moveTo(tl.sx + padPx, ty);
+            ctx.lineTo(br.sx - padPx, ty);
+          }
+          for (let ty = br.sy - padPx; ty < br.sy; ty += tileSize) {
+            ctx.moveTo(tl.sx + padPx, ty);
+            ctx.lineTo(br.sx - padPx, ty);
+          }
+          ctx.stroke();
+        }
+      }
+    }
+  }
+
   const blocks = [];
   for (let i = 0; i < xCoords.length - 1; i++) {
     for (let j = 0; j < yCoords.length - 1; j++) {
@@ -217,7 +349,7 @@ function drawBuildings(ctx, camera, xCoords, yCoords) {
   }
 }
 
-function drawIntersectionDetail(ctx, camera, ix, iy) {
+function drawIntersectionDetail(ctx, camera, ix, iy, bounds) {
   const tl = worldToScreen(ix - HALF_ROAD, iy + HALF_ROAD, camera);
   const br = worldToScreen(ix + HALF_ROAD, iy - HALF_ROAD, camera);
   ctx.fillStyle = COLORS.road;
@@ -225,29 +357,83 @@ function drawIntersectionDetail(ctx, camera, ix, iy) {
 
   if (camera.zoom < 0.4) return;
 
-  const cwOffset = HALF_ROAD + 4;
+  const cwOffset = HALF_ROAD + 8;
   const cwLen = 10;
-  const roadW = ROAD_WIDTH * camera.zoom;
-  const numStrips = Math.max(2, Math.floor(roadW / (8 * camera.zoom)));
+  const lineGap = 2;
+  const lineThick = 0.6;
+  const numStrips = Math.max(2, Math.floor((ROAD_WIDTH * camera.zoom) / (8 * camera.zoom)));
 
-  ctx.fillStyle = "rgba(224,224,224,0.4)";
+  const hasTop = !bounds || iy < bounds.maxY;
+  const hasBottom = !bounds || iy > bounds.minY;
+  const hasLeft = !bounds || ix > bounds.minX;
+  const hasRight = !bounds || ix < bounds.maxX;
+
+  const lineColor = "rgba(255,255,255,0.7)";
+  const stripColor = "rgba(255,255,255,0.85)";
+
+  if (hasTop) {
+    ctx.fillStyle = lineColor;
+    let a = worldToScreen(ix - HALF_ROAD + 2, iy + cwOffset - lineGap, camera);
+    let b = worldToScreen(ix + HALF_ROAD - 2, iy + cwOffset - lineGap - lineThick, camera);
+    ctx.fillRect(a.sx, a.sy, b.sx - a.sx, b.sy - a.sy);
+    a = worldToScreen(ix - HALF_ROAD + 2, iy + cwOffset + cwLen + lineGap + lineThick, camera);
+    b = worldToScreen(ix + HALF_ROAD - 2, iy + cwOffset + cwLen + lineGap, camera);
+    ctx.fillRect(a.sx, a.sy, b.sx - a.sx, b.sy - a.sy);
+  }
+  if (hasBottom) {
+    ctx.fillStyle = lineColor;
+    let a = worldToScreen(ix - HALF_ROAD + 2, iy - cwOffset + lineGap + lineThick, camera);
+    let b = worldToScreen(ix + HALF_ROAD - 2, iy - cwOffset + lineGap, camera);
+    ctx.fillRect(a.sx, a.sy, b.sx - a.sx, b.sy - a.sy);
+    a = worldToScreen(ix - HALF_ROAD + 2, iy - cwOffset - cwLen - lineGap, camera);
+    b = worldToScreen(ix + HALF_ROAD - 2, iy - cwOffset - cwLen - lineGap - lineThick, camera);
+    ctx.fillRect(a.sx, a.sy, b.sx - a.sx, b.sy - a.sy);
+  }
+  if (hasLeft) {
+    ctx.fillStyle = lineColor;
+    let a = worldToScreen(ix - cwOffset + lineGap, iy - HALF_ROAD + 2, camera);
+    let b = worldToScreen(ix - cwOffset + lineGap + lineThick, iy + HALF_ROAD - 2, camera);
+    ctx.fillRect(a.sx, b.sy, b.sx - a.sx, a.sy - b.sy);
+    a = worldToScreen(ix - cwOffset - cwLen - lineGap - lineThick, iy - HALF_ROAD + 2, camera);
+    b = worldToScreen(ix - cwOffset - cwLen - lineGap, iy + HALF_ROAD - 2, camera);
+    ctx.fillRect(a.sx, b.sy, b.sx - a.sx, a.sy - b.sy);
+  }
+  if (hasRight) {
+    ctx.fillStyle = lineColor;
+    let a = worldToScreen(ix + cwOffset - lineGap - lineThick, iy - HALF_ROAD + 2, camera);
+    let b = worldToScreen(ix + cwOffset - lineGap, iy + HALF_ROAD - 2, camera);
+    ctx.fillRect(a.sx, b.sy, b.sx - a.sx, a.sy - b.sy);
+    a = worldToScreen(ix + cwOffset + cwLen + lineGap, iy - HALF_ROAD + 2, camera);
+    b = worldToScreen(ix + cwOffset + cwLen + lineGap + lineThick, iy + HALF_ROAD - 2, camera);
+    ctx.fillRect(a.sx, b.sy, b.sx - a.sx, a.sy - b.sy);
+  }
+
+  ctx.fillStyle = stripColor;
   for (let s = 0; s < numStrips; s++) {
     const frac = (s + 0.5) / numStrips;
     const stripX = ix - HALF_ROAD + frac * ROAD_WIDTH;
     const stripY = iy - HALF_ROAD + frac * ROAD_WIDTH;
 
-    let a = worldToScreen(stripX - 1.5, iy + cwOffset + cwLen, camera);
-    let b = worldToScreen(stripX + 1.5, iy + cwOffset, camera);
-    ctx.fillRect(a.sx, a.sy, b.sx - a.sx, b.sy - a.sy);
-    a = worldToScreen(stripX - 1.5, iy - cwOffset, camera);
-    b = worldToScreen(stripX + 1.5, iy - cwOffset - cwLen, camera);
-    ctx.fillRect(a.sx, b.sy, b.sx - a.sx, a.sy - b.sy);
-    a = worldToScreen(ix - cwOffset - cwLen, stripY - 1.5, camera);
-    b = worldToScreen(ix - cwOffset, stripY + 1.5, camera);
-    ctx.fillRect(a.sx, b.sy, b.sx - a.sx, a.sy - b.sy);
-    a = worldToScreen(ix + cwOffset, stripY - 1.5, camera);
-    b = worldToScreen(ix + cwOffset + cwLen, stripY + 1.5, camera);
-    ctx.fillRect(a.sx, b.sy, b.sx - a.sx, a.sy - b.sy);
+    if (hasTop) {
+      let a = worldToScreen(stripX - 1.5, iy + cwOffset + cwLen, camera);
+      let b = worldToScreen(stripX + 1.5, iy + cwOffset, camera);
+      ctx.fillRect(a.sx, a.sy, b.sx - a.sx, b.sy - a.sy);
+    }
+    if (hasBottom) {
+      let a = worldToScreen(stripX - 1.5, iy - cwOffset, camera);
+      let b = worldToScreen(stripX + 1.5, iy - cwOffset - cwLen, camera);
+      ctx.fillRect(a.sx, b.sy, b.sx - a.sx, a.sy - b.sy);
+    }
+    if (hasLeft) {
+      let a = worldToScreen(ix - cwOffset - cwLen, stripY - 1.5, camera);
+      let b = worldToScreen(ix - cwOffset, stripY + 1.5, camera);
+      ctx.fillRect(a.sx, b.sy, b.sx - a.sx, a.sy - b.sy);
+    }
+    if (hasRight) {
+      let a = worldToScreen(ix + cwOffset, stripY - 1.5, camera);
+      let b = worldToScreen(ix + cwOffset + cwLen, stripY + 1.5, camera);
+      ctx.fillRect(a.sx, b.sy, b.sx - a.sx, a.sy - b.sy);
+    }
   }
 }
 
