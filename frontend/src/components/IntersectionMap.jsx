@@ -1,6 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
 
-// ──────────────────────── Constants ────────────────────────
 const ROAD_WIDTH = 60;
 const HALF_ROAD = ROAD_WIDTH / 2;
 
@@ -14,14 +13,12 @@ const COLORS = {
   tree: "#1c2e1f",
   vehicle_go: "#00e676",
   vehicle_yield: "#ffeb3b",
-  vehicle_brake: "#ff9800",
   vehicle_stop: "#f44336",
   emergency: "#ff1744",
   drunk: "#FF69B4",
   text: "#ffffff",
 };
 
-// ──────────────────────── Camera helpers ────────────────────────
 function worldToScreen(wx, wy, camera) {
   return {
     sx: (wx - camera.x) * camera.zoom + camera.canvasW / 2,
@@ -36,13 +33,12 @@ function screenToWorld(sx, sy, camera) {
   };
 }
 
-// ──────────────────────── Drawing functions ────────────────────────
-
 function drawCityGrid(ctx, camera, grid) {
   const { intersections, grid_spacing } = grid;
   if (!intersections || intersections.length === 0) return;
 
-  const margin = grid_spacing;
+  // Small stub of road beyond outermost intersections so vehicles don't spawn from nothing
+  const margin = grid_spacing * 0.5;
 
   ctx.fillStyle = COLORS.background;
   ctx.fillRect(0, 0, camera.canvasW, camera.canvasH);
@@ -50,10 +46,15 @@ function drawCityGrid(ctx, camera, grid) {
   const xCoords = [...new Set(intersections.map(i => i.x))].sort((a, b) => a - b);
   const yCoords = [...new Set(intersections.map(i => i.y))].sort((a, b) => a - b);
 
-  // Vertical roads
+  const gridMinX = Math.min(...xCoords);
+  const gridMaxX = Math.max(...xCoords);
+  const gridMinY = Math.min(...yCoords);
+  const gridMaxY = Math.max(...yCoords);
+
+  // Draw vertical roads (columns) — clipped to grid bounds
   for (const ix of xCoords) {
-    const minY = Math.min(...yCoords) - margin;
-    const maxY = Math.max(...yCoords) + margin;
+    const minY = gridMinY - margin;
+    const maxY = gridMaxY + margin;
 
     const left = worldToScreen(ix - HALF_ROAD, 0, camera);
     const right = worldToScreen(ix + HALF_ROAD, 0, camera);
@@ -80,10 +81,10 @@ function drawCityGrid(ctx, camera, grid) {
     ctx.setLineDash([]);
   }
 
-  // Horizontal roads
+  // Draw horizontal roads (rows) — clipped to grid bounds
   for (const iy of yCoords) {
-    const minX = Math.min(...xCoords) - margin;
-    const maxX = Math.max(...xCoords) + margin;
+    const minX = gridMinX - margin;
+    const maxX = gridMaxX + margin;
 
     const top = worldToScreen(0, iy + HALF_ROAD, camera);
     const bot = worldToScreen(0, iy - HALF_ROAD, camera);
@@ -110,12 +111,10 @@ function drawCityGrid(ctx, camera, grid) {
     ctx.setLineDash([]);
   }
 
-  // Buildings
   if (camera.zoom > 0.3) {
     drawBuildings(ctx, camera, xCoords, yCoords);
   }
 
-  // Intersection details
   for (const inter of intersections) {
     drawIntersectionDetail(ctx, camera, inter.x, inter.y);
   }
@@ -177,19 +176,15 @@ function drawIntersectionDetail(ctx, camera, ix, iy) {
     const stripX = ix - HALF_ROAD + frac * ROAD_WIDTH;
     const stripY = iy - HALF_ROAD + frac * ROAD_WIDTH;
 
-    // Top
     let a = worldToScreen(stripX - 1.5, iy + cwOffset + cwLen, camera);
     let b = worldToScreen(stripX + 1.5, iy + cwOffset, camera);
     ctx.fillRect(a.sx, a.sy, b.sx - a.sx, b.sy - a.sy);
-    // Bottom
     a = worldToScreen(stripX - 1.5, iy - cwOffset, camera);
     b = worldToScreen(stripX + 1.5, iy - cwOffset - cwLen, camera);
     ctx.fillRect(a.sx, b.sy, b.sx - a.sx, a.sy - b.sy);
-    // Left
     a = worldToScreen(ix - cwOffset - cwLen, stripY - 1.5, camera);
     b = worldToScreen(ix - cwOffset, stripY + 1.5, camera);
     ctx.fillRect(a.sx, b.sy, b.sx - a.sx, a.sy - b.sy);
-    // Right
     a = worldToScreen(ix + cwOffset, stripY - 1.5, camera);
     b = worldToScreen(ix + cwOffset + cwLen, stripY + 1.5, camera);
     ctx.fillRect(a.sx, b.sy, b.sx - a.sx, a.sy - b.sy);
@@ -221,28 +216,43 @@ function drawTrafficLights(ctx, camera, phase, demo) {
   const ix = demo.x, iy = demo.y;
   const r = Math.max(3, 5 * camera.zoom);
   const pad = 2 * camera.zoom;
-  const dist = HALF_ROAD + 25;
+  const dist = HALF_ROAD + 18;
 
-  for (const pos of [
-    { wx: ix - HALF_ROAD - 8, wy: iy + dist, green: phase === "NS_GREEN" },
-    { wx: ix + HALF_ROAD + 8, wy: iy - dist, green: phase === "NS_GREEN" },
-    { wx: ix - dist, wy: iy + HALF_ROAD + 8, green: phase === "EW_GREEN" },
-    { wx: ix + dist, wy: iy - HALF_ROAD - 8, green: phase === "EW_GREEN" },
-  ]) {
+  // Each light: position, which phase makes it green, rotation angle (radians)
+  // Lights are placed on the right side of the road for right-hand traffic (European)
+  // and rotated to face incoming traffic.
+  const lights = [
+    // Southbound lane (west side of NS road, north of intersection) — faces south
+    { wx: ix - HALF_ROAD - 8, wy: iy + dist, green: phase === "NS_GREEN", angle: Math.PI },
+    // Northbound lane (east side of NS road, south of intersection) — faces north
+    { wx: ix + HALF_ROAD + 8, wy: iy - dist, green: phase === "NS_GREEN", angle: 0 },
+    // Westbound lane (north side of EW road, east of intersection) — faces west
+    { wx: ix + dist, wy: iy + HALF_ROAD + 8, green: phase === "EW_GREEN", angle: -Math.PI / 2 },
+    // Eastbound lane (south side of EW road, west of intersection) — faces east
+    { wx: ix - dist, wy: iy - HALF_ROAD - 8, green: phase === "EW_GREEN", angle: Math.PI / 2 },
+  ];
+
+  for (const pos of lights) {
     const s = worldToScreen(pos.wx, pos.wy, camera);
     const boxW = r * 2 + pad * 2, boxH = r * 4 + pad * 3;
 
+    ctx.save();
+    ctx.translate(s.sx, s.sy);
+    ctx.rotate(pos.angle);
+
     ctx.fillStyle = "#111"; ctx.strokeStyle = "#444"; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.roundRect(s.sx - boxW / 2, s.sy - boxH / 2, boxW, boxH, 3);
+    ctx.beginPath(); ctx.roundRect(-boxW / 2, -boxH / 2, boxW, boxH, 3);
     ctx.fill(); ctx.stroke();
 
     ctx.fillStyle = pos.green ? "#00e676" : "#1a3a1a";
-    ctx.beginPath(); ctx.arc(s.sx, s.sy - r - pad / 2, r, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, -r - pad / 2, r, 0, Math.PI * 2); ctx.fill();
     if (pos.green) { ctx.shadowColor = "#00e676"; ctx.shadowBlur = 6; ctx.fill(); ctx.shadowBlur = 0; }
 
     ctx.fillStyle = pos.green ? "#3a1a1a" : "#f44336";
-    ctx.beginPath(); ctx.arc(s.sx, s.sy + r + pad / 2, r, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, r + pad / 2, r, 0, Math.PI * 2); ctx.fill();
     if (!pos.green) { ctx.shadowColor = "#f44336"; ctx.shadowBlur = 6; ctx.fill(); ctx.shadowBlur = 0; }
+
+    ctx.restore();
   }
 }
 
@@ -254,7 +264,6 @@ function drawVehicle(ctx, camera, agent) {
   else if (agent.is_emergency) color = COLORS.emergency;
   else if (decision === "go") color = COLORS.vehicle_go;
   else if (decision === "yield") color = COLORS.vehicle_yield;
-  else if (decision === "brake") color = COLORS.vehicle_brake;
   else color = COLORS.vehicle_stop;
 
   const isBg = agent.agent_id?.startsWith("BG_");
@@ -262,7 +271,7 @@ function drawVehicle(ctx, camera, agent) {
 
   if (isDrunk) { ctx.shadowColor = COLORS.drunk; ctx.shadowBlur = 18; }
   else if (agent.risk_level === "collision") { ctx.shadowColor = COLORS.emergency; ctx.shadowBlur = 20; }
-  else if (agent.risk_level === "high") { ctx.shadowColor = COLORS.vehicle_brake; ctx.shadowBlur = 12; }
+  else if (agent.risk_level === "high") { ctx.shadowColor = "#ff9800"; ctx.shadowBlur = 12; }
 
   const w = 8 * camera.zoom, h = 14 * camera.zoom;
 
@@ -288,17 +297,13 @@ function drawVehicle(ctx, camera, agent) {
 
   if (camera.zoom > 0.6) {
     if (isDrunk) {
-      // Drunk driver: always show label prominently
       ctx.fillStyle = COLORS.drunk;
       ctx.font = `bold ${Math.max(9, 10 * camera.zoom)}px monospace`;
       ctx.textAlign = "center";
-      ctx.fillText("🍺 DRUNK", s.sx, s.sy + h + 6 * camera.zoom);
+      ctx.fillText("DRUNK", s.sx, s.sy + h + 6 * camera.zoom);
       ctx.fillStyle = "#FF69B4";
-      ctx.font = `${Math.max(7, 8 * camera.zoom)}px monospace`;
-      ctx.fillText(`${(agent.speed * 3.6).toFixed(0)} km/h`, s.sx, s.sy + h + 16 * camera.zoom);
       if (agent.reason && agent.reason !== "drunk_driving") {
-        ctx.fillStyle = "#ff99cc";
-        ctx.font = `bold ${Math.max(6, 7 * camera.zoom)}px monospace`;
+        ctx.fillStyle = "#FF69B4";
         ctx.fillText(agent.reason.toUpperCase(), s.sx, s.sy + h + 25 * camera.zoom);
       }
     } else if (!isBg) {
@@ -310,7 +315,6 @@ function drawVehicle(ctx, camera, agent) {
       ctx.font = `${Math.max(7, 8 * camera.zoom)}px monospace`;
       ctx.fillText(`${(agent.speed * 3.6).toFixed(0)} km/h`, s.sx, s.sy + h + 16 * camera.zoom);
     } else if (camera.zoom > 0.8) {
-      // BG vehicles: show ID + decision
       ctx.fillStyle = "rgba(255,255,255,0.5)";
       ctx.font = `bold ${Math.max(7, 8 * camera.zoom)}px monospace`;
       ctx.textAlign = "center";
@@ -353,8 +357,6 @@ function drawCollisionZone(ctx, camera, pairs, agents) {
   }
 }
 
-// ──────────────────────── Main Component ────────────────────────
-
 const DEFAULT_GRID = {
   intersections: [{ x: 0, y: 0 }],
   grid_cols: 1, grid_rows: 1, grid_spacing: 300,
@@ -373,7 +375,6 @@ export default function IntersectionMap({
   const dragRef = useRef({ dragging: false, lastX: 0, lastY: 0 });
   const gridData = grid || DEFAULT_GRID;
 
-  // Compute min zoom so the full grid + margin fits the viewport
   const computeMinZoom = useCallback(() => {
     const g = gridData;
     if (!g.intersections || g.intersections.length < 2) return 0.15;
@@ -386,7 +387,6 @@ export default function IntersectionMap({
     return Math.max(0.1, Math.min(zx, zy));
   }, [gridData, camera.canvasW, camera.canvasH]);
 
-  // Sync external zoom from slider, clamped to minZoom
   useEffect(() => {
     if (externalZoom !== null && externalZoom !== undefined) {
       const minZ = computeMinZoom();
@@ -394,7 +394,6 @@ export default function IntersectionMap({
     }
   }, [externalZoom, computeMinZoom]);
 
-  // Report minZoom to parent so slider can be clamped
   useEffect(() => {
     if (onMinZoom) onMinZoom(computeMinZoom());
   }, [computeMinZoom, onMinZoom]);
@@ -410,8 +409,6 @@ export default function IntersectionMap({
     return () => window.removeEventListener("resize", updateSize);
   }, []);
 
-  // No wheel zoom — use slider instead.
-  // But prevent page from scrolling when hovering over canvas.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -441,7 +438,6 @@ export default function IntersectionMap({
     const dpr = window.devicePixelRatio || 1;
     const cam = { ...camera };
 
-    // HiDPI: set canvas buffer size to dpr * CSS size
     canvas.width = cam.canvasW * dpr;
     canvas.height = cam.canvasH * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -464,10 +460,8 @@ export default function IntersectionMap({
 
     if (infrastructure?.phase) drawTrafficLights(ctx, cam, infrastructure.phase, gridData.demo_intersection);
 
-    // Draw traffic lights at semaforizate intersections
     if (trafficLightIntersections && trafficLightIntersections.length > 0) {
       for (const tli of trafficLightIntersections) {
-        // Skip the demo intersection if it already has lights from infrastructure
         if (infrastructure?.phase && gridData.demo_intersection &&
             tli.x === gridData.demo_intersection.x && tli.y === gridData.demo_intersection.y) continue;
         drawTrafficLights(ctx, cam, tli.phase, tli);

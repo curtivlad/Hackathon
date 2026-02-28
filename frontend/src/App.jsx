@@ -31,7 +31,6 @@ function App() {
   return (
     <div className="h-screen w-screen overflow-hidden relative bg-black">
 
-      {/* ───── FULL-SCREEN MAP BACKGROUND ───── */}
       <IntersectionMap
         agents={agents}
         infrastructure={state?.infrastructure || {}}
@@ -43,10 +42,8 @@ function App() {
         trafficLightIntersections={trafficLightIntersections}
       />
 
-      {/* ───── RISK ALERT OVERLAY ───── */}
       <RiskAlert type={status} collisionPairs={collisionPairs} />
 
-      {/* ───── TOP HEADER BAR (frosted glass) ───── */}
       <div className="fixed top-4 left-4 right-4 z-20 pointer-events-auto">
         <div className="flex justify-between items-center px-5 py-3 rounded-2xl border border-white/10"
           style={{ background: 'rgba(10,10,10,0.75)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}>
@@ -55,7 +52,6 @@ function App() {
             <p className="text-xs text-neutral-400">Team MVP</p>
           </div>
           <div className="flex items-center gap-4">
-            {/* Status badge */}
             <div className={`p-3 rounded-xl border transition-all duration-300 ${
               status === 'safe' ? 'bg-green-950/10 border-green-900/40' : 'bg-red-950/20 border-red-900/60'
             }`}>
@@ -69,7 +65,6 @@ function App() {
                 </span>
               </div>
             </div>
-            {/* Connection indicator */}
             <div className="flex px-3 py-1.5 rounded-full items-center gap-2 border border-white/10"
               style={{ background: 'rgba(0,0,0,0.5)' }}>
               <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
@@ -81,12 +76,10 @@ function App() {
         </div>
       </div>
 
-      {/* ───── LEFT PANEL: Scenario Buttons (frosted glass) ───── */}
       <div className="fixed top-24 left-4 z-20 w-80 pointer-events-auto">
         <div className="rounded-2xl border border-white/10 p-5"
           style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}>
 
-          {/* Vehicle counts */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Car className="text-neutral-400" size={18} />
@@ -95,11 +88,10 @@ function App() {
             <div className="flex gap-3 text-xs font-mono">
               <span className="text-white">Demo: <strong>{demoAgents}</strong></span>
               <span className="text-neutral-500">BG: <strong>{bgAgents}</strong></span>
-              {drunkAgents > 0 && <span className="text-pink-400">🍺: <strong>{drunkAgents}</strong></span>}
+              {drunkAgents > 0 && <span className="text-pink-400">Drunk: <strong>{drunkAgents}</strong></span>}
             </div>
           </div>
 
-          {/* Background Traffic Toggle */}
           <button
             onClick={toggleBackgroundTraffic}
             className={`w-full mb-4 transition px-4 py-2.5 rounded-lg text-sm font-medium border flex justify-between items-center group ${
@@ -117,7 +109,6 @@ function App() {
             </span>
           </button>
 
-          {/* Spawn Drunk Driver Button */}
           <button
             onClick={spawnDrunkDriver}
             className="w-full mb-4 transition px-4 py-2.5 rounded-lg text-sm font-medium border flex justify-between items-center group
@@ -127,7 +118,7 @@ function App() {
               <Wine size={14} />
               <span>Spawn Drunk Driver</span>
             </span>
-            <span className="text-xs font-bold text-pink-400">🍺</span>
+            <span className="text-xs font-bold text-pink-400">!</span>
           </button>
 
           <h3 className="text-sm text-neutral-400 uppercase tracking-wider font-bold mb-3 flex items-center gap-2">
@@ -144,7 +135,6 @@ function App() {
         </div>
       </div>
 
-      {/* ───── RIGHT PANEL: Vehicle Status (frosted glass) ───── */}
       <div className="fixed top-24 right-4 z-20 w-80 max-h-[calc(100vh-7rem)] pointer-events-auto">
         <div className="rounded-2xl border border-white/10 p-5 max-h-[calc(100vh-7rem)] overflow-y-auto"
           style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}>
@@ -152,20 +142,17 @@ function App() {
         </div>
       </div>
 
-      {/* ───── BOTTOM LEGEND (frosted glass) ───── */}
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
         <div className="flex gap-5 px-5 py-2.5 rounded-full border border-white/10 text-xs text-neutral-400 font-mono"
           style={{ background: 'rgba(10,10,10,0.65)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#00e676] rounded-sm"></div>GO</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#ffeb3b] rounded-sm"></div>YIELD</div>
-          <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#ff9800] rounded-sm"></div>BRAKE</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#f44336] rounded-sm"></div>STOP</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#ff1744] rounded-sm"></div>EMERGENCY</div>
-          <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#FF69B4] rounded-sm"></div>🍺 DRUNK</div>
+          <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#FF69B4] rounded-sm"></div>DRUNK</div>
         </div>
       </div>
 
-      {/* ───── ZOOM SLIDER (bottom-right, frosted glass) ───── */}
       <div className="fixed bottom-4 right-4 z-20 pointer-events-auto">
         <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl border border-white/10"
           style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>

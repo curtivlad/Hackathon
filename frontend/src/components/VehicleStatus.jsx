@@ -3,7 +3,6 @@ import React from "react";
 const DECISION_COLORS = {
   go: "#00e676",
   yield: "#ffeb3b",
-  brake: "#ff9800",
   stop: "#f44336",
 };
 
@@ -30,7 +29,7 @@ function VehicleCard({ agent }) {
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ color: agent.is_drunk ? "#FF69B4" : "#fff", fontWeight: "bold", fontFamily: "monospace" }}>
-          {agent.is_drunk ? "🍺 [DRUNK] " : ""}{agent.is_emergency ? "[EMR] " : ""}{agent.agent_id}
+          {agent.is_drunk ? "[DRUNK] " : ""}{agent.is_emergency ? "[EMR] " : ""}{agent.agent_id}
         </span>
         <span style={{
           background: decisionColor + "33",
@@ -65,7 +64,7 @@ function VehicleCard({ agent }) {
         {(agent.llm_calls !== undefined && agent.llm_calls > 0) && (
           <div style={{ gridColumn: "span 2" }}>
             <Stat
-              label="🧠 AI Brain"
+              label="AI Brain"
               value={`${agent.llm_calls} decizii LLM`}
               valueColor="#7c4dff"
             />
@@ -105,7 +104,7 @@ function VehicleCardCompact({ agent }) {
       alignItems: "center",
     }}>
       <span style={{ color: agent.is_drunk ? "#FF69B4" : "#aaa", fontFamily: "monospace", fontSize: "11px", fontWeight: "bold" }}>
-        {agent.is_drunk ? "🍺 " : ""}{agent.is_emergency ? "🚑 " : ""}{agent.agent_id}
+        {agent.is_drunk ? "[D] " : ""}{agent.is_emergency ? "[E] " : ""}{agent.agent_id}
       </span>
       <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
         <span style={{ color: "#777", fontFamily: "monospace", fontSize: "10px" }}>
@@ -166,7 +165,7 @@ export default function VehicleStatus({ agents = {}, infrastructure = {} }) {
       {drunkVehicles.length > 0 && (
         <>
           <h3 style={{ color: "#FF69B4", fontSize: "11px", fontFamily: "monospace", marginTop: "16px", marginBottom: "8px", letterSpacing: "2px" }}>
-            🍺 DRUNK DRIVERS ({drunkVehicles.length})
+            DRUNK DRIVERS ({drunkVehicles.length})
           </h3>
           {drunkVehicles.map(v => <VehicleCard key={v.agent_id} agent={v} />)}
         </>
