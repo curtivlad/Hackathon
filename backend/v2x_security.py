@@ -313,6 +313,38 @@ def sanitize_full_state(raw: dict) -> dict:
     safe["stats"] = {k: v for k, v in (raw.get("stats") or {}).items()
                      if isinstance(v, (int, float))}
 
+    # grid info (intersections layout) — pass through validated
+    grid_raw = raw.get("grid")
+    if isinstance(grid_raw, dict):
+        safe["grid"] = {
+            "intersections": [
+                {"x": round(_clamp(_safe_num(i.get("x")), COORD_MIN, COORD_MAX), 1),
+                 "y": round(_clamp(_safe_num(i.get("y")), COORD_MIN, COORD_MAX), 1)}
+                for i in (grid_raw.get("intersections") or []) if isinstance(i, dict)
+            ],
+            "grid_cols": int(_safe_num(grid_raw.get("grid_cols"), 1)),
+            "grid_rows": int(_safe_num(grid_raw.get("grid_rows"), 1)),
+            "grid_spacing": round(_safe_num(grid_raw.get("grid_spacing"), 300), 1),
+            "demo_intersection": {
+                "x": round(_clamp(_safe_num((grid_raw.get("demo_intersection") or {}).get("x")), COORD_MIN, COORD_MAX), 1),
+                "y": round(_clamp(_safe_num((grid_raw.get("demo_intersection") or {}).get("y")), COORD_MIN, COORD_MAX), 1),
+            },
+        }
+
+    # background traffic status
+    safe["background_traffic"] = bool(raw.get("background_traffic"))
+
+    # traffic light intersections
+    tl_raw = raw.get("traffic_light_intersections") or []
+    safe["traffic_light_intersections"] = [
+        {
+            "x": round(_clamp(_safe_num(tl.get("x")), COORD_MIN, COORD_MAX), 1),
+            "y": round(_clamp(_safe_num(tl.get("y")), COORD_MIN, COORD_MAX), 1),
+            "phase": _safe_str(tl.get("phase"), MAX_STR_LEN),
+        }
+        for tl in tl_raw[:20] if isinstance(tl, dict)
+    ]
+
     safe["timestamp"] = round(time.time(), 1)
     return safe
 
