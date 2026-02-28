@@ -9,5 +9,6 @@ venv/
 .pytest_cache/
 tests/
 test_out.txt
+telemetry_reports/
 *.bat
 

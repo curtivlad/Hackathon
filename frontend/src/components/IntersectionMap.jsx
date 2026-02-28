@@ -596,7 +596,7 @@ const DEFAULT_GRID = {
 export default function IntersectionMap({
   agents = {}, infrastructure = {}, collisionPairs = [],
   grid = null, fullScreen = false,
-  externalZoom = null, onMinZoom = null,
+  externalZoom = null, onMinZoom = null, onZoomChange = null,
   trafficLightIntersections = [],
 }) {
   const canvasRef = useRef(null);
@@ -665,13 +665,24 @@ export default function IntersectionMap({
     return () => window.removeEventListener("resize", updateSize);
   }, []);
 
+  const handleWheel = useCallback((e) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setCamera(prev => {
+      const minZ = computeMinZoom();
+      const maxZ = 3.0;
+      const newZoom = Math.max(minZ, Math.min(maxZ, prev.zoom * delta));
+      if (onZoomChange) onZoomChange(newZoom);
+      return { ...prev, zoom: newZoom };
+    });
+  }, [computeMinZoom, onZoomChange]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const prevent = (e) => e.preventDefault();
-    canvas.addEventListener("wheel", prevent, { passive: false });
-    return () => canvas.removeEventListener("wheel", prevent);
-  }, []);
+    canvas.addEventListener("wheel", handleWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", handleWheel);
+  }, [handleWheel]);
 
   const handleMouseDown = useCallback((e) => {
     if (e.button !== 0) return;
