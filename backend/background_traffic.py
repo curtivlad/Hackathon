@@ -16,9 +16,9 @@ from v2x_channel import channel
 logger = logging.getLogger("background_traffic")
 
 # ──────────────────────── Grid Configuration ────────────────────────
-GRID_COLS = 3
-GRID_ROWS = 3
-GRID_SPACING = 300.0
+GRID_COLS = 5
+GRID_ROWS = 5
+GRID_SPACING = 200.0
 
 _half_w = (GRID_COLS - 1) * GRID_SPACING / 2
 _half_h = (GRID_ROWS - 1) * GRID_SPACING / 2
@@ -33,10 +33,10 @@ for row in range(GRID_ROWS):
 DEMO_INTERSECTION = min(INTERSECTIONS, key=lambda p: p[0]**2 + p[1]**2)
 
 LANE_OFFSET = 10.0
-SPAWN_MARGIN = 140.0
+SPAWN_MARGIN = 80.0
 
 # Background traffic settings
-MAX_BG_VEHICLES = 10
+MAX_BG_VEHICLES = 18
 SPAWN_INTERVAL = 2.5
 BG_SPEED_MIN = 7.0
 BG_SPEED_MAX = 12.0
@@ -44,16 +44,14 @@ EMERGENCY_CHANCE = 0.08  # 8% chance a BG vehicle is an ambulance
 MIN_SPAWN_DISTANCE = 60.0  # minimum distance between vehicles on same lane
 
 # ──────────────────────── Traffic Lights on Grid ────────────────────────
-# Layout:
-#   Row top    (y=300):  traffic light on LEFT   column (-300, 300)
-#   Row middle (y=0):    traffic light on RIGHT  column ( 300,   0)
-#   Row bottom (y=-300): traffic light on MIDDLE column (   0,-300)
+# Traffic lights at the four corners of the 5x5 grid.
 TRAFFIC_LIGHT_PHASE_DURATION = 12.0  # seconds per phase
 
 TRAFFIC_LIGHT_INTERSECTIONS = [
-    (-300.0,  300.0),   # top-left
-    ( 300.0,    0.0),   # middle-right
-    (   0.0, -300.0),   # bottom-middle
+    (-200.0,  200.0),   # inner 3x3 top-left
+    ( 200.0,  200.0),   # inner 3x3 top-right
+    (-200.0, -200.0),   # inner 3x3 bottom-left
+    ( 200.0, -200.0),   # inner 3x3 bottom-right
 ]
 
 

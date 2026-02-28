@@ -169,6 +169,7 @@ def sanitize_full_state(raw: dict) -> dict:
             "decision": _safe_str(a.get("decision", "go"), 20),
             "reason": _safe_str(a.get("reason", ""), 50),
             "is_emergency": bool(a.get("is_emergency", False)),
+            "is_drunk": bool(a.get("is_drunk", False)),
             "llm_calls": int(a.get("llm_calls", 0)),
             "llm_errors": int(a.get("llm_errors", 0)),
             "memory_decisions": int(a.get("memory_decisions", 0)),
