@@ -32,7 +32,10 @@ class V2XMessage:
     decision: str
     timestamp: float = field(default_factory=time.time)
     is_emergency: bool = False
+    is_police: bool = False
     is_drunk: bool = False
+    pulling_over: bool = False
+    arrested: bool = False
     hmac_signature: str = ""  # HMAC-SHA256 — protectie integritate
 
 
@@ -189,7 +192,10 @@ class V2XChannel:
                     "decision": m.decision,
                     "timestamp": m.timestamp,
                     "is_emergency": m.is_emergency,
+                    "is_police": m.is_police,
                     "is_drunk": m.is_drunk,
+                    "pulling_over": m.pulling_over,
+                    "arrested": m.arrested,
                 }
             ]
 
@@ -208,7 +214,10 @@ class V2XChannel:
                     "decision": m.decision,
                     "timestamp": m.timestamp,
                     "is_emergency": m.is_emergency,
+                    "is_police": m.is_police,
                     "is_drunk": m.is_drunk,
+                    "pulling_over": m.pulling_over,
+                    "arrested": m.arrested,
                 }
                 for agent_id, m in self._messages.items()
             }

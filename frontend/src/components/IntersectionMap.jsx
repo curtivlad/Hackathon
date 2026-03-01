@@ -16,6 +16,7 @@ const COLORS = {
   vehicle_brake: "#ff9800",
   vehicle_stop: "#f44336",
   emergency: "#ff1744",
+  police: "#4488ff",
   drunk: "#FF69B4",
   text: "#ffffff",
 };
@@ -449,6 +450,48 @@ function drawDemoHighlight(ctx, camera, demo) {
   }
 }
 
+const CONGESTION_THRESHOLD = 4;
+const CONGESTION_RADIUS = 60; // world units — how close a vehicle must be to count
+
+function drawCongestedIntersections(ctx, camera, grid, agents) {
+  if (!grid?.intersections) return;
+  const vehicles = Object.values(agents).filter(a => a.agent_type === "vehicle");
+  if (vehicles.length === 0) return;
+
+  for (const inter of grid.intersections) {
+    let count = 0;
+    for (const v of vehicles) {
+      const dx = v.x - inter.x;
+      const dy = v.y - inter.y;
+      if (dx * dx + dy * dy < CONGESTION_RADIUS * CONGESTION_RADIUS) {
+        count++;
+      }
+    }
+    if (count >= CONGESTION_THRESHOLD) {
+      const center = worldToScreen(inter.x, inter.y, camera);
+      const r = 75 * camera.zoom;
+      // Intensity scales with congestion (4=base, 8+=max)
+      const intensity = Math.min(1.0, (count - CONGESTION_THRESHOLD + 1) / 5);
+      const alphaCore = 0.08 + 0.12 * intensity;
+      const alphaMid = 0.04 + 0.06 * intensity;
+
+      const grad = ctx.createRadialGradient(center.sx, center.sy, 0, center.sx, center.sy, r);
+      grad.addColorStop(0, `rgba(244, 67, 54, ${alphaCore})`);
+      grad.addColorStop(0.7, `rgba(244, 67, 54, ${alphaMid})`);
+      grad.addColorStop(1, "rgba(244, 67, 54, 0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(center.sx, center.sy, r, 0, Math.PI * 2); ctx.fill();
+
+      if (camera.zoom > 0.45) {
+        ctx.fillStyle = `rgba(244, 67, 54, ${0.4 + 0.3 * intensity})`;
+        ctx.font = `bold ${Math.max(8, 10 * camera.zoom)}px monospace`;
+        ctx.textAlign = "center";
+        ctx.fillText(`⚠ ${count} vehicles`, center.sx, center.sy - r - 4);
+      }
+    }
+  }
+}
+
 function drawTrafficLights(ctx, camera, phase, demo) {
   if (!phase || !demo) return;
   const ix = demo.x, iy = demo.y;
@@ -497,16 +540,18 @@ function drawVehicle(ctx, camera, agent) {
     : decision;
   let color;
   if (agent.is_drunk) color = COLORS.drunk;
-  else if (agent.is_emergency) color = COLORS.emergency;
+  else if (agent.is_police) color = COLORS.police;       // solid blue body
+  else if (agent.is_emergency) color = COLORS.emergency;  // solid red body
   else if (effectiveDecision === "go") color = COLORS.vehicle_go;
   else if (effectiveDecision === "yield") color = COLORS.vehicle_yield;
   else if (effectiveDecision === "brake") color = COLORS.vehicle_brake;
   else color = COLORS.vehicle_stop;
 
-  const isBg = agent.agent_id?.startsWith("BG_") || agent.agent_id?.startsWith("AMBULANCE_");
+  const isBg = agent.agent_id?.startsWith("BG_") || agent.agent_id?.startsWith("AMBULANCE_") || agent.agent_id?.startsWith("POLICE_");
   const isDrunk = agent.is_drunk;
 
   if (isDrunk) { ctx.shadowColor = COLORS.drunk; ctx.shadowBlur = 18; }
+  else if (agent.is_police) { ctx.shadowColor = COLORS.police; ctx.shadowBlur = 14; }
   else if (agent.risk_level === "collision") { ctx.shadowColor = COLORS.emergency; ctx.shadowBlur = 20; }
   else if (agent.risk_level === "high") { ctx.shadowColor = "#ff9800"; ctx.shadowBlur = 12; }
 
@@ -531,6 +576,46 @@ function drawVehicle(ctx, camera, agent) {
   ctx.globalAlpha = 1.0;
   ctx.restore();
   ctx.shadowBlur = 0;
+
+  // ── Police: blue body + alternating red/blue flashing lights ──
+  if (agent.is_police) {
+    const policeFlash = Math.sin(Date.now() / 120) > 0; // fast alternation
+    const leftColor = policeFlash ? "#ff1744" : "#0055ff";
+    const rightColor = policeFlash ? "#0055ff" : "#ff1744";
+    ctx.save();
+    ctx.translate(s.sx, s.sy);
+    ctx.rotate((agent.direction * Math.PI) / 180);
+    const dotR = 2.2 * camera.zoom;
+    // Left light
+    ctx.fillStyle = leftColor;
+    ctx.shadowColor = leftColor;
+    ctx.shadowBlur = 12 * camera.zoom;
+    ctx.beginPath(); ctx.arc(-w / 2 + 1 * camera.zoom, -h / 2 + 2 * camera.zoom, dotR, 0, Math.PI * 2); ctx.fill();
+    // Right light
+    ctx.fillStyle = rightColor;
+    ctx.shadowColor = rightColor;
+    ctx.shadowBlur = 12 * camera.zoom;
+    ctx.beginPath(); ctx.arc(w / 2 - 1 * camera.zoom, -h / 2 + 2 * camera.zoom, dotR, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+  // ── Ambulance: red body + blue flashing lights ──
+  else if (agent.is_emergency && !agent.is_drunk) {
+    const ambuFlash = Math.sin(Date.now() / 150) > 0;
+    if (ambuFlash) {
+      ctx.save();
+      ctx.translate(s.sx, s.sy);
+      ctx.rotate((agent.direction * Math.PI) / 180);
+      const dotR = 2 * camera.zoom;
+      ctx.fillStyle = "#2979ff";
+      ctx.shadowColor = "#2979ff";
+      ctx.shadowBlur = 12 * camera.zoom;
+      ctx.beginPath(); ctx.arc(-w / 2 + 1 * camera.zoom, -h / 2 + 2 * camera.zoom, dotR, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(w / 2 - 1 * camera.zoom, -h / 2 + 2 * camera.zoom, dotR, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+  }
 
   // ── Pull-over indicator (flashing amber outline + hazard lights) ──
   if (agent.pulling_over) {
@@ -564,14 +649,34 @@ function drawVehicle(ctx, camera, agent) {
 
   if (camera.zoom > 0.6) {
     if (isDrunk) {
-      ctx.fillStyle = COLORS.drunk;
-      ctx.font = `bold ${Math.max(9, 10 * camera.zoom)}px monospace`;
-      ctx.textAlign = "center";
-      ctx.fillText("DRUNK", s.sx, s.sy + h + 6 * camera.zoom);
-      ctx.fillStyle = "#FF69B4";
-      if (agent.reason && agent.reason !== "drunk_driving") {
+      if (agent.arrested) {
+        // Arrested drunk driver — flashing red/blue handcuff effect
+        const arrestFlash = Math.sin(Date.now() / 150) > 0;
+        ctx.save();
+        ctx.translate(s.sx, s.sy);
+        ctx.rotate((agent.direction * Math.PI) / 180);
+        ctx.strokeStyle = arrestFlash ? "#0055ff" : "#ff1744";
+        ctx.lineWidth = 2.5 * camera.zoom;
+        ctx.setLineDash([4 * camera.zoom, 3 * camera.zoom]);
+        ctx.beginPath();
+        ctx.roundRect(-w / 2 - 2 * camera.zoom, -h / 2 - 2 * camera.zoom, w + 4 * camera.zoom, h + 4 * camera.zoom, 3 * camera.zoom);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+        ctx.fillStyle = arrestFlash ? "#ff1744" : "#0055ff";
+        ctx.font = `bold ${Math.max(9, 10 * camera.zoom)}px monospace`;
+        ctx.textAlign = "center";
+        ctx.fillText("🚔 ARRESTED", s.sx, s.sy + h + 6 * camera.zoom);
+      } else {
+        ctx.fillStyle = COLORS.drunk;
+        ctx.font = `bold ${Math.max(9, 10 * camera.zoom)}px monospace`;
+        ctx.textAlign = "center";
+        ctx.fillText("DRUNK", s.sx, s.sy + h + 6 * camera.zoom);
         ctx.fillStyle = "#FF69B4";
-        ctx.fillText(agent.reason.toUpperCase(), s.sx, s.sy + h + 25 * camera.zoom);
+        if (agent.reason && agent.reason !== "drunk_driving") {
+          ctx.fillStyle = "#FF69B4";
+          ctx.fillText(agent.reason.toUpperCase(), s.sx, s.sy + h + 25 * camera.zoom);
+        }
       }
     } else if (!isBg) {
       ctx.fillStyle = COLORS.text;
@@ -582,12 +687,21 @@ function drawVehicle(ctx, camera, agent) {
       ctx.font = `${Math.max(7, 8 * camera.zoom)}px monospace`;
       ctx.fillText(`${(agent.speed * 3.6).toFixed(0)} km/h`, s.sx, s.sy + h + 16 * camera.zoom);
     } else if (camera.zoom > 0.8) {
-      const displayLabel = agent.agent_id?.startsWith("AMBULANCE_") ? "AMBULANCE" : agent.agent_id;
-      ctx.fillStyle = agent.agent_id?.startsWith("AMBULANCE_") ? COLORS.emergency : "rgba(255,255,255,0.5)";
+      const displayLabel = agent.agent_id?.startsWith("AMBULANCE_") ? "AMBULANCE"
+        : agent.agent_id?.startsWith("POLICE_") ? "POLICE"
+        : agent.agent_id;
+      ctx.fillStyle = agent.agent_id?.startsWith("AMBULANCE_") ? COLORS.emergency
+        : agent.agent_id?.startsWith("POLICE_") ? COLORS.police
+        : "rgba(255,255,255,0.5)";
       ctx.font = `bold ${Math.max(7, 8 * camera.zoom)}px monospace`;
       ctx.textAlign = "center";
       ctx.fillText(displayLabel, s.sx, s.sy + h + 6 * camera.zoom);
-      if (agent.decision && agent.decision !== "go") {
+      if (agent.is_police && (agent.reason === "chasing_drunk" || agent.reason === "arresting_drunk")) {
+        const chaseFlash = Math.sin(Date.now() / 200) > 0;
+        ctx.fillStyle = chaseFlash ? "#ff1744" : "#0055ff";
+        ctx.font = `bold ${Math.max(7, 8 * camera.zoom)}px monospace`;
+        ctx.fillText(agent.reason === "arresting_drunk" ? "🚔 ARRESTING" : "🚨 CHASING", s.sx, s.sy + h + 15 * camera.zoom);
+      } else if (agent.decision && agent.decision !== "go") {
         ctx.fillStyle = color;
         ctx.font = `bold ${Math.max(6, 7 * camera.zoom)}px monospace`;
         ctx.fillText(effectiveDecision.toUpperCase(), s.sx, s.sy + h + 15 * camera.zoom);
@@ -785,12 +899,14 @@ export default function IntersectionMap({
       for (const a of Object.values(interpolatedAgents)) {
         if (a.agent_type !== "vehicle") continue;
         if (a.is_drunk) drunkV.push(a);
-        else if (a.agent_id?.startsWith("BG_") || a.agent_id?.startsWith("AMBULANCE_")) bgV.push(a);
+        else if (a.agent_id?.startsWith("BG_") || a.agent_id?.startsWith("AMBULANCE_") || a.agent_id?.startsWith("POLICE_")) bgV.push(a);
         else demoV.push(a);
       }
       for (const v of bgV) drawVehicle(ctx, cam, v);
       for (const v of demoV) drawVehicle(ctx, cam, v);
       for (const v of drunkV) drawVehicle(ctx, cam, v);
+
+      drawCongestedIntersections(ctx, cam, gd, interpolatedAgents);
 
       if (curInfra?.phase) drawTrafficLights(ctx, cam, curInfra.phase, gd.demo_intersection);
 

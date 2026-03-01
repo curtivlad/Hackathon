@@ -5,14 +5,14 @@ import IntersectionMap from './components/IntersectionMap';
 import RiskAlert from './components/RiskAlert';
 import VehicleStatus from './components/VehicleStatus';
 import EventLog from './components/EventLog';
-import { ShieldCheck, ShieldAlert, Car, Settings, Activity, Navigation, ZoomIn, ZoomOut, Wine, Mic, MicOff, Volume2, VolumeX, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, Car, Settings, Activity, Navigation, ZoomIn, ZoomOut, Wine, Mic, MicOff, Volume2, VolumeX, ChevronLeft, ChevronRight, Siren } from 'lucide-react';
 
 function App() {
   const {
     state, connected, status, agents, collisionPairs,
     startScenario, stopSimulation, restartSimulation,
     grid, toggleBackgroundTraffic, backgroundTrafficActive,
-    spawnDrunkDriver,
+    spawnDrunkDriver, spawnPolice,
   } = useWebSocket();
 
   const [zoom, setZoom] = useState(0.7);
@@ -30,6 +30,7 @@ function App() {
     stopSimulation,
     restartSimulation,
     spawnDrunkDriver,
+    spawnPolice,
     toggleBackgroundTraffic,
     setZoom,
     collisionPairs,
@@ -38,10 +39,10 @@ function App() {
   const trafficLightIntersections = state?.traffic_light_intersections || [];
 
   const demoAgents = Object.values(agents || {}).filter(
-    (a) => a.agent_type === 'vehicle' && !a.agent_id?.startsWith('BG_') && !a.agent_id?.startsWith('AMBULANCE_') && !a.agent_id?.startsWith('DRUNK_')
+    (a) => a.agent_type === 'vehicle' && !a.agent_id?.startsWith('BG_') && !a.agent_id?.startsWith('AMBULANCE_') && !a.agent_id?.startsWith('POLICE_') && !a.agent_id?.startsWith('DRUNK_')
   ).length;
   const bgAgents = Object.values(agents || {}).filter(
-    (a) => a.agent_type === 'vehicle' && (a.agent_id?.startsWith('BG_') || a.agent_id?.startsWith('AMBULANCE_'))
+    (a) => a.agent_type === 'vehicle' && (a.agent_id?.startsWith('BG_') || a.agent_id?.startsWith('AMBULANCE_') || a.agent_id?.startsWith('POLICE_'))
   ).length;
   const drunkAgents = Object.values(agents || {}).filter(
     (a) => a.agent_type === 'vehicle' && a.is_drunk
@@ -134,7 +135,7 @@ function App() {
 
           <button
             onClick={spawnDrunkDriver}
-            className="w-full mb-4 transition px-4 py-2.5 rounded-lg text-sm font-medium border flex justify-between items-center group
+            className="w-full mb-2 transition px-4 py-2.5 rounded-lg text-sm font-medium border flex justify-between items-center group
               bg-pink-950/20 border-pink-500/40 text-pink-300 hover:bg-pink-900/40 hover:border-pink-400/60 hover:text-pink-200"
           >
             <span className="flex items-center gap-2">
@@ -142,6 +143,18 @@ function App() {
               <span>Spawn Drunk Driver</span>
             </span>
             <span className="text-xs font-bold text-pink-400">!</span>
+          </button>
+
+          <button
+            onClick={spawnPolice}
+            className="w-full mb-4 transition px-4 py-2.5 rounded-lg text-sm font-medium border flex justify-between items-center group
+              bg-blue-950/20 border-blue-500/40 text-blue-300 hover:bg-blue-900/40 hover:border-blue-400/60 hover:text-blue-200"
+          >
+            <span className="flex items-center gap-2">
+              <Siren size={14} />
+              <span>Spawn Police Car</span>
+            </span>
+            <span className="text-xs font-bold text-blue-400">🚔</span>
           </button>
 
           <h3 className="text-sm text-neutral-400 uppercase tracking-wider font-bold mb-3 flex items-center gap-2">
@@ -189,6 +202,7 @@ function App() {
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#ff9800] rounded-sm"></div>BRAKE</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#f44336] rounded-sm"></div>STOP</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#ff1744] rounded-sm"></div>EMERGENCY</div>
+          <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#4488ff] rounded-sm"></div>POLICE</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#FF69B4] rounded-sm"></div>DRUNK</div>
         </div>
       </div>

@@ -119,6 +119,7 @@ export function useVoiceControl({
   stopSimulation,
   restartSimulation,
   spawnDrunkDriver,
+  spawnPolice,
   toggleBackgroundTraffic,
   setZoom,
   collisionPairs = [],
@@ -156,14 +157,14 @@ export function useVoiceControl({
   // Store latest callbacks in refs (stable reference)
   const callbacksRef = useRef({
     startScenario, stopSimulation, restartSimulation,
-    spawnDrunkDriver, toggleBackgroundTraffic, setZoom,
+    spawnDrunkDriver, spawnPolice, toggleBackgroundTraffic, setZoom,
   });
   useEffect(() => {
     callbacksRef.current = {
       startScenario, stopSimulation, restartSimulation,
-      spawnDrunkDriver, toggleBackgroundTraffic, setZoom,
+      spawnDrunkDriver, spawnPolice, toggleBackgroundTraffic, setZoom,
     };
-  }, [startScenario, stopSimulation, restartSimulation, spawnDrunkDriver, toggleBackgroundTraffic, setZoom]);
+  }, [startScenario, stopSimulation, restartSimulation, spawnDrunkDriver, spawnPolice, toggleBackgroundTraffic, setZoom]);
 
   // ─── Command handler with debounce ────────────────────────
   const handleCommand = useCallback((text) => {
@@ -213,6 +214,11 @@ export function useVoiceControl({
     } else if (t.includes("zoom out") || t.includes("further") || t.includes("micsoreaza")) {
       cb.setZoom?.((prev) => Math.max(0.15, (prev || 0.7) - 0.2));
       confirm("Zooming out");
+
+    // ── Spawn police ──
+    } else if (t.includes("police") || t.includes("politie") || t.includes("politia")) {
+      cb.spawnPolice?.();
+      confirm("Police car spawned");
 
     // ── Spawn drunk ──
     } else if (t.includes("spawn") || (t.includes("drunk") && !t.includes("start"))) {

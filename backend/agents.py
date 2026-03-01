@@ -46,7 +46,8 @@ class VehicleAgent:
     def __init__(self, agent_id, start_x, start_y, direction,
                  initial_speed=10.0, intention="straight",
                  is_emergency=False, target_speed=10.0,
-                 waypoints=None, is_drunk=False, persistent=False):
+                 waypoints=None, is_drunk=False, persistent=False,
+                 is_police=False):
         self.agent_id = agent_id
         self.x = start_x
         self.y = start_y
@@ -54,7 +55,8 @@ class VehicleAgent:
         self.speed = initial_speed
         self.target_speed = target_speed
         self.intention = intention
-        self.is_emergency = is_emergency
+        self.is_emergency = is_emergency or is_police  # police is also emergency
+        self.is_police = is_police
         self.is_drunk = is_drunk
         self.persistent = persistent   # never despawn — turn at edges
         if self.is_emergency:
@@ -91,6 +93,11 @@ class VehicleAgent:
         self._pullover_original_x = None    # original lane x before pull-over
         self._pullover_original_y = None    # original lane y before pull-over
         self._pullover_target_offset = 8.0  # how far to shift to the side (units)
+
+        # Police arrest state — when police catches a drunk driver
+        self._arrested = False              # drunk driver has been arrested
+        self._arrested_timer = 0.0          # countdown before removal
+        self._chasing_drunk_id = None       # police: ID of drunk being chased
 
     # ──────────────────────── Helpers ────────────────────────
 
@@ -302,6 +309,125 @@ class VehicleAgent:
 
         return False
 
+    # ──────────────────────── Police Arrest Logic ────────────────────────
+
+    POLICE_DETECT_RANGE = 120.0   # how far ahead police can detect drunk drivers
+    POLICE_ARREST_RANGE = 18.0    # distance at which police arrests the drunk
+    ARREST_REMOVAL_DELAY = 3.0    # seconds before removing arrested drunk
+
+    def _detect_drunk_ahead(self):
+        """Police vehicle: detect a drunk driver ahead on the same road.
+        Returns the drunk vehicle info dict if found, else None.
+        """
+        if not self.is_police:
+            return None
+
+        nearby = self._get_nearby_vehicles_info()
+        rad = math.radians(self.direction)
+        fwd_x = math.sin(rad)
+        fwd_y = math.cos(rad)
+
+        best = None
+        best_dist = float('inf')
+
+        for o in nearby:
+            if not o.get("is_drunk"):
+                continue
+            if o.get("arrested"):
+                continue  # already arrested, skip
+
+            rel_x = o["x"] - self.x
+            rel_y = o["y"] - self.y
+
+            # Project onto forward axis — must be ahead
+            proj = rel_x * fwd_x + rel_y * fwd_y
+            if proj < 0:
+                continue  # behind us
+
+            if proj > self.POLICE_DETECT_RANGE:
+                continue  # too far
+
+            # Perpendicular distance — roughly same road
+            perp = abs(rel_x * (-fwd_y) + rel_y * fwd_x)
+            if perp > 20.0:
+                continue  # different road
+
+            if proj < best_dist:
+                best_dist = proj
+                best = o
+
+        return best
+
+    def _police_chase_drunk(self):
+        """Police vehicle: chase and arrest drunk drivers ahead.
+        Returns True if actively chasing/arresting.
+        """
+        if not self.is_police:
+            return False
+
+        drunk = self._detect_drunk_ahead()
+
+        if drunk is not None:
+            self._chasing_drunk_id = drunk["id"]
+            dist = drunk["dist"]
+
+            if dist < self.POLICE_ARREST_RANGE:
+                # Close enough — arrest the drunk!
+                self._broadcast_v2x_alert(
+                    "police_arrest",
+                    f"Police {self.agent_id} arresting drunk driver {drunk['id']}"
+                )
+                logger.info(f"[POLICE] {self.agent_id} arrested {drunk['id']}")
+
+                # Signal the drunk driver to be arrested
+                # Find the drunk vehicle in simulation and mark it
+                from simulation import simulation
+                for v in simulation.vehicles:
+                    if v.agent_id == drunk["id"] and v.is_drunk and not v._arrested:
+                        v._arrested = True
+                        v._arrested_timer = self.ARREST_REMOVAL_DELAY
+                        v.decision = "stop"
+                        v.reason = "arrested_by_police"
+                        v.recommended_speed = 0.0
+                        logger.info(f"[POLICE] {drunk['id']} marked for removal in {self.ARREST_REMOVAL_DELAY}s")
+                        break
+
+                # Police also stops briefly
+                self.decision = "stop"
+                self.reason = "arresting_drunk"
+                self.recommended_speed = 0.0
+                return True
+            else:
+                # Chase — speed up toward the drunk
+                self.decision = "go"
+                self.reason = "chasing_drunk"
+                self.recommended_speed = min(MAX_SPEED, self.target_speed * 1.5)
+                return True
+
+        elif self._chasing_drunk_id:
+            # Drunk was removed or we lost sight — resume normal patrol
+            self._chasing_drunk_id = None
+
+        return False
+
+    def _process_arrest(self):
+        """Drunk driver: process arrest countdown. Returns True if arrested and should be removed."""
+        if not self._arrested:
+            return False
+
+        self.decision = "stop"
+        self.reason = "arrested_by_police"
+        self.recommended_speed = 0.0
+        self.speed = max(0.0, self.speed - DECELERATION * UPDATE_INTERVAL * 3)
+
+        self._arrested_timer -= UPDATE_INTERVAL
+        if self._arrested_timer <= 0:
+            # Time to remove from simulation
+            logger.info(f"[POLICE] Removing arrested drunk driver {self.agent_id}")
+            return True
+
+        return False
+
     # ──────────────────────── Traffic Light Detection ────────────────────────
 
     def _is_red_light(self):
@@ -387,6 +513,7 @@ class VehicleAgent:
                 "intention": msg.intention,
                 "is_emergency": msg.is_emergency,
                 "is_drunk": msg.is_drunk,
+                "arrested": msg.arrested,
                 "dist": dist,
                 "ttc": ttc_str,
                 "decision": msg.decision,  # ce decizie a luat celalalt agent
@@ -896,7 +1023,10 @@ class VehicleAgent:
             direction=self.direction, intention=self.intention,
             risk_level=self.risk_level, decision=self.decision,
             is_emergency=self.is_emergency,
+            is_police=self.is_police,
             is_drunk=self.is_drunk,
+            pulling_over=self._pulling_over,
+            arrested=self._arrested,
         )
 
     # ──────────────────────── Lifecycle ────────────────────────
@@ -942,6 +1072,10 @@ class VehicleAgent:
 
     def _bg_compute_risk_and_decision(self):
         if self._apply_pullover():
+            return
+
+        # Police chase logic — before emergency override
+        if self.is_police and self._police_chase_drunk():
             return
 
         if self.is_emergency:
@@ -1206,6 +1340,21 @@ class VehicleAgent:
         TURN_CHANCE = 0.30  # 30% chance to turn at each intersection
 
         while self._running:
+            # ── Police arrest: if this drunk was arrested, stop and wait for removal ──
+            if self._arrested:
+                if self._process_arrest():
+                    # Timer expired — remove from simulation
+                    from simulation import simulation
+                    self._running = False
+                    channel.remove_agent(self.agent_id)
+                    # Remove from simulation.vehicles list
+                    simulation.vehicles = [v for v in simulation.vehicles if v.agent_id != self.agent_id]
+                    logger.info(f"[POLICE] Drunk driver {self.agent_id} removed from simulation")
+                    return
+                channel.publish(self._build_message())
+                time.sleep(UPDATE_INTERVAL)
+                continue
+
             # If we ran out of waypoints, generate continuation
             if not self._waypoints:
                 if self.persistent:
@@ -1401,8 +1550,10 @@ class VehicleAgent:
             "intention": self.intention, "risk_level": self.risk_level,
             "decision": self.decision, "reason": self.reason,
             "is_emergency": self.is_emergency,
+            "is_police": self.is_police,
             "is_drunk": self.is_drunk,
             "pulling_over": self._pulling_over,
+            "arrested": self._arrested,
         }
         # Include LLM + memory stats
         llm_stats = self._llm_brain.get_stats()
