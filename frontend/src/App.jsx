@@ -5,14 +5,18 @@ import IntersectionMap from './components/IntersectionMap';
 import RiskAlert from './components/RiskAlert';
 import VehicleStatus from './components/VehicleStatus';
 import EventLog from './components/EventLog';
-import { ShieldCheck, ShieldAlert, Car, Settings, Activity, Navigation, ZoomIn, ZoomOut, Wine, Mic, MicOff, Volume2, VolumeX, ChevronLeft, ChevronRight, Siren } from 'lucide-react';
+import MainMenu from './components/MainMenu';
+import { ShieldCheck, ShieldAlert, Car, Settings, Activity, Navigation, ZoomIn, ZoomOut, Wine, Mic, MicOff, Volume2, VolumeX, ChevronLeft, ChevronRight, Siren, ArrowLeft } from 'lucide-react';
 
 function App() {
+  const [view, setView] = useState('menu');
+  const [activeMode, setActiveMode] = useState(null);
+
   const {
     state, connected, status, agents, collisionPairs,
     startScenario, stopSimulation, restartSimulation,
     grid, toggleBackgroundTraffic, backgroundTrafficActive,
-    spawnDrunkDriver, spawnPolice,
+    spawnDrunkDriver, spawnPolice, initMode,
   } = useWebSocket();
 
   const [zoom, setZoom] = useState(0.7);
@@ -37,6 +41,22 @@ function App() {
   });
 
   const trafficLightIntersections = state?.traffic_light_intersections || [];
+
+  const handleSelectMode = async (mode) => {
+    await initMode(mode);
+    setActiveMode(mode);
+    setView('simulation');
+  };
+
+  const handleBackToMenu = async () => {
+    await stopSimulation();
+    setView('menu');
+    setActiveMode(null);
+  };
+
+  if (view === 'menu') {
+    return <MainMenu onSelectMode={handleSelectMode} />;
+  }
 
   const demoAgents = Object.values(agents || {}).filter(
     (a) => a.agent_type === 'vehicle' && !a.agent_id?.startsWith('BG_') && !a.agent_id?.startsWith('AMBULANCE_') && !a.agent_id?.startsWith('POLICE_') && !a.agent_id?.startsWith('DRUNK_')
@@ -69,8 +89,20 @@ function App() {
         <div className="flex justify-between items-center px-5 py-3 rounded-2xl border border-white/10"
           style={{ background: 'rgba(10,10,10,0.75)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}>
           <div>
-            <h1 className="text-xl font-bold text-white tracking-wide">V2X Safety Agent</h1>
-            <p className="text-xs text-neutral-400">Team MVP</p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleBackToMenu}
+                className="p-1.5 rounded-lg border border-white/10 text-neutral-400 hover:text-white hover:bg-white/10 transition"
+              >
+                <ArrowLeft size={16} />
+              </button>
+              <div>
+                <h1 className="text-xl font-bold text-white tracking-wide">V2X Safety Agent</h1>
+                <p className="text-xs text-neutral-400">
+                  {activeMode === 'CITY' ? 'City Simulation' : 'Scenario Mode'} — Team MVP
+                </p>
+              </div>
+            </div>
           </div>
           <div className="flex items-center gap-4">
             <div className={`p-3 rounded-xl border transition-all duration-300 ${
@@ -133,29 +165,33 @@ function App() {
             </span>
           </button>
 
-          <button
-            onClick={spawnDrunkDriver}
-            className="w-full mb-2 transition px-4 py-2.5 rounded-lg text-sm font-medium border flex justify-between items-center group
-              bg-pink-950/20 border-pink-500/40 text-pink-300 hover:bg-pink-900/40 hover:border-pink-400/60 hover:text-pink-200"
-          >
-            <span className="flex items-center gap-2">
-              <Wine size={14} />
-              <span>Spawn Drunk Driver</span>
-            </span>
-            <span className="text-xs font-bold text-pink-400">!</span>
-          </button>
+          {activeMode === 'CITY' && (
+            <>
+              <button
+                onClick={spawnDrunkDriver}
+                className="w-full mb-2 transition px-4 py-2.5 rounded-lg text-sm font-medium border flex justify-between items-center group
+                  bg-pink-950/20 border-pink-500/40 text-pink-300 hover:bg-pink-900/40 hover:border-pink-400/60 hover:text-pink-200"
+              >
+                <span className="flex items-center gap-2">
+                  <Wine size={14} />
+                  <span>Spawn Drunk Driver</span>
+                </span>
+                <span className="text-xs font-bold text-pink-400">!</span>
+              </button>
 
-          <button
-            onClick={spawnPolice}
-            className="w-full mb-4 transition px-4 py-2.5 rounded-lg text-sm font-medium border flex justify-between items-center group
-              bg-blue-950/20 border-blue-500/40 text-blue-300 hover:bg-blue-900/40 hover:border-blue-400/60 hover:text-blue-200"
-          >
-            <span className="flex items-center gap-2">
-              <Siren size={14} />
-              <span>Spawn Police Car</span>
-            </span>
-            <span className="text-xs font-bold text-blue-400"></span>
-          </button>
+              <button
+                onClick={spawnPolice}
+                className="w-full mb-4 transition px-4 py-2.5 rounded-lg text-sm font-medium border flex justify-between items-center group
+                  bg-blue-950/20 border-blue-500/40 text-blue-300 hover:bg-blue-900/40 hover:border-blue-400/60 hover:text-blue-200"
+              >
+                <span className="flex items-center gap-2">
+                  <Siren size={14} />
+                  <span>Spawn Police Car</span>
+                </span>
+                <span className="text-xs font-bold text-blue-400"></span>
+              </button>
+            </>
+          )}
 
           <h3 className="text-sm text-neutral-400 uppercase tracking-wider font-bold mb-3 flex items-center gap-2">
             <Settings size={15}/> Load Scenario

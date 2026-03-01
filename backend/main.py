@@ -165,6 +165,7 @@ def sanitize_full_state(raw: dict) -> dict:
     return {
         "scenario": _safe_str(raw.get("scenario"), 50),
         "running": bool(raw.get("running", False)),
+        "mode": _safe_str(raw.get("mode", "CITY"), 20),
         "agents": agents,
         "infrastructure": raw.get("infrastructure", {}),
         "collision_pairs": pairs,
@@ -224,6 +225,20 @@ def root():
         "security": "enabled",
         "auth_required": bool(API_TOKEN),
     }
+
+
+from pydantic import BaseModel
+
+class InitRequest(BaseModel):
+    mode: str = "CITY"
+
+@app.post("/simulation/init", dependencies=[Depends(verify_token), Depends(rate_limit)])
+def init_simulation(body: InitRequest):
+    mode = body.mode
+    if mode not in ("CITY", "SCENARIO"):
+        return {"error": "Invalid mode. Use CITY or SCENARIO."}
+    simulation.set_mode(mode)
+    return {"status": "initialized", "mode": mode}
 
 
 @app.post("/simulation/start/{scenario}", dependencies=[Depends(verify_token), Depends(rate_limit)])

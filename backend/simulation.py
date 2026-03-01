@@ -6,7 +6,7 @@ from agents import VehicleAgent
 from infrastructure_agent import InfrastructureAgent
 from v2x_channel import channel
 from collision_detector import get_collision_pairs
-from background_traffic import bg_traffic, get_grid_info
+from background_traffic import bg_traffic, get_grid_info, get_scenario_grid_info
 from telemetry import telemetry
 
 LANE_OFFSET = 10.0
@@ -19,6 +19,7 @@ class SimulationManager:
         self.vehicles: List[VehicleAgent] = []
         self.active_scenario: Optional[str] = None
         self.running = False
+        self.mode: str = "CITY"
         self.stats = {
             "collisions_prevented": 0,
             "total_vehicles": 0,
@@ -27,6 +28,13 @@ class SimulationManager:
         self._start_time = None
         self._monitor_thread = None
         self._use_traffic_light = False
+
+    def set_mode(self, mode: str):
+        if mode not in ("CITY", "SCENARIO"):
+            mode = "CITY"
+        if self.running:
+            self.stop()
+        self.mode = mode
 
 
     def scenario_emergency_vehicle(self):
@@ -233,15 +241,17 @@ class SimulationManager:
             and not (p["agent1"].startswith("AMBULANCE_") and p["agent2"].startswith("AMBULANCE_"))
         ]
         use_tl = self._use_traffic_light
+        grid = get_grid_info() if self.mode == "CITY" else get_scenario_grid_info()
         return {
             "scenario": self.active_scenario,
             "running": self.running,
+            "mode": self.mode,
             "agents": all_agents,
             "infrastructure": self.infrastructure.get_state() if use_tl else {},
             "collision_pairs": collision_pairs,
             "stats": self.stats,
             "timestamp": time.time(),
-            "grid": get_grid_info(),
+            "grid": grid,
             "background_traffic": bg_traffic.active,
             "traffic_light_intersections": bg_traffic.get_traffic_light_states(),
         }
