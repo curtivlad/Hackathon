@@ -9,6 +9,7 @@ services:
     environment:
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1
+      - TZ=Europe/Bucharest
     restart: unless-stopped
 
   frontend:

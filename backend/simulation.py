@@ -63,9 +63,11 @@ class SimulationManager:
             "total_vehicles": 0,
             "elapsed_time": 0.0,
         }
-        self._start_time = None
+        self._start_time = time.time()
         self.mode = mode
         self._monitoring = False
+        telemetry.reset()
+        self.start_monitor()
 
 
     def scenario_emergency_vehicle(self):
@@ -217,7 +219,11 @@ class SimulationManager:
         self.running = True
         self._monitoring = True
         self._start_time = time.time()
+        self.stats["elapsed_time"] = 0.0
         self.stats["total_vehicles"] += len(self.vehicles)
+
+        with telemetry._lock:
+            telemetry._start_time = self._start_time
 
         telemetry.record_scenario_start(scenario)
         telemetry.record_event("scenario_started", {"scenario": scenario, "vehicles": len(self.vehicles)})
