@@ -4,6 +4,7 @@ import json
 import time
 import threading
 import logging
+import sqlite3
 from collections import defaultdict
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -12,6 +13,30 @@ logger = logging.getLogger("telemetry")
 
 EXPORT_DIR = os.path.join(os.path.dirname(__file__), "telemetry_reports")
 os.makedirs(EXPORT_DIR, exist_ok=True)
+
+DB_PATH = os.path.join(os.path.dirname(__file__), "history.db")
+
+
+def init_db():
+    """Create history.db and the session_stats table if they do not exist."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS session_stats (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp       TEXT    NOT NULL,
+            duration        REAL    NOT NULL,
+            collisions_prevented INTEGER NOT NULL,
+            throughput      REAL    NOT NULL,
+            cooperation_score REAL  NOT NULL
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+init_db()
 
 
 class TelemetryCollector:
@@ -165,6 +190,28 @@ class TelemetryCollector:
                 pass
 
         return history
+
+    def save_session(self):
+        """Insert the current session statistics into the session_stats table."""
+        report = self.generate_report()
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute(
+            """
+            INSERT INTO session_stats
+                (timestamp, duration, collisions_prevented, throughput, cooperation_score)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                datetime.now().isoformat(),
+                report["session_duration_s"],
+                report["collisions_prevented"],
+                report["throughput_vehicles_per_min"],
+                report["cooperation_score"],
+            ),
+        )
+        conn.commit()
+        conn.close()
+        logger.info("Session stats saved to history.db")
 
     def reset(self):
         with self._lock:

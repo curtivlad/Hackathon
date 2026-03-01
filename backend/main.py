@@ -425,12 +425,14 @@ def spawn_ambulance():
 @app.post("/background-traffic/start", dependencies=[Depends(verify_token), Depends(rate_limit)])
 def start_bg_traffic():
     bg_traffic.start()
+    simulation.start_monitor()
     return {"status": "started"}
 
 
 @app.post("/background-traffic/stop", dependencies=[Depends(verify_token), Depends(rate_limit)])
 def stop_bg_traffic():
     bg_traffic.stop()
+    simulation.stop_monitor()
     return {"status": "stopped"}
 
 
@@ -443,6 +445,28 @@ def get_grid():
 def get_history(last_n: int = 50):
     last_n = max(1, min(last_n, 500))
     return {"history": channel.get_history(last_n)}
+
+
+@app.get("/api/history")
+def get_session_history():
+    import sqlite3
+    db_path = os.path.join(os.path.dirname(__file__), "history.db")
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT * FROM session_stats ORDER BY id DESC LIMIT 5"
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+@app.post("/api/history/save", dependencies=[Depends(verify_token), Depends(rate_limit)])
+def save_session_now():
+    from telemetry import telemetry
+    telemetry.save_session()
+    return {"status": "saved"}
 
 
 @app.get("/telemetry/report", dependencies=[Depends(verify_token)])

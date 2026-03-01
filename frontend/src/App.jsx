@@ -5,6 +5,7 @@ import IntersectionMap from './components/IntersectionMap';
 import RiskAlert from './components/RiskAlert';
 import VehicleStatus from './components/VehicleStatus';
 import EventLog from './components/EventLog';
+import HistoryTable from './components/HistoryTable';
 import MainMenu from './components/MainMenu';
 import { ShieldCheck, ShieldAlert, Car, Settings, Activity, Navigation, ZoomIn, ZoomOut, Wine, Mic, MicOff, Volume2, VolumeX, ChevronLeft, ChevronRight, Siren, ArrowLeft, Cross } from 'lucide-react';
 
@@ -299,6 +300,13 @@ function App() {
       </div>
 
       {}
+
+      <div className="fixed bottom-14 left-4 z-20 pointer-events-auto w-[420px]">
+        <div className="rounded-2xl border border-white/10 px-4 py-3"
+          style={{ background: 'rgba(10,10,10,0.75)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}>
+          <HistoryTable />
+        </div>
+      </div>
 
       <div className="fixed bottom-4 right-4 z-20 pointer-events-auto max-w-[calc(100vw-2rem)]">
         <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-white/10"
