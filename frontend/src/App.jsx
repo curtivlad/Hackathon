@@ -162,7 +162,7 @@ function App() {
         className="fixed top-24 left-0 z-20 pointer-events-auto flex items-start max-h-[calc(100vh-7rem)]"
         style={{ transition: 'transform 0.35s cubic-bezier(0.4,0,0.2,1)', transform: leftOpen ? 'translateX(0)' : 'translateX(calc(-100% + 32px))' }}
       >
-        <div className="flex flex-col gap-3 w-80 ml-4 max-h-[calc(100vh-7rem)]">
+        <div className="flex flex-col gap-3 w-80 ml-4 h-[calc(100vh-7rem)]">
           <div className="rounded-2xl border border-white/10 p-5 shrink-0"
             style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}>
 
@@ -255,7 +255,7 @@ function App() {
 
 
           </div>
-          <div className="min-h-0 overflow-y-auto dark-scrollbar">
+          <div className="min-h-0 flex-1 overflow-y-auto dark-scrollbar">
             <EventLog collisionPairs={collisionPairs} agents={agents} />
           </div>
         </div>
@@ -269,7 +269,7 @@ function App() {
       </div>
 
       <div
-        className="fixed top-24 right-0 z-20 max-h-[calc(100vh-7rem)] pointer-events-auto flex items-start"
+        className="fixed top-24 right-0 z-20 max-h-[calc(100vh-12rem)] pointer-events-auto flex items-start"
         style={{ transition: 'transform 0.35s cubic-bezier(0.4,0,0.2,1)', transform: rightOpen ? 'translateX(0)' : 'translateX(calc(100% - 32px))' }}
       >
         <button
@@ -279,14 +279,14 @@ function App() {
         >
           {rightOpen ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
-        <div className="w-80 mr-4 rounded-2xl border border-white/10 p-5 max-h-[calc(100vh-7rem)] overflow-y-auto dark-scrollbar"
+        <div className="w-80 mr-4 rounded-2xl border border-white/10 p-5 max-h-[calc(100vh-12rem)] overflow-y-auto dark-scrollbar"
           style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}>
           <VehicleStatus agents={agents} infrastructure={state?.infrastructure || {}} activeMode={activeMode} />
         </div>
       </div>
 
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
-        <div className="flex gap-5 px-5 py-2.5 rounded-full border border-white/10 text-xs text-neutral-400 font-mono"
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto max-w-[calc(100vw-2rem)]">
+        <div className="flex gap-3 px-4 py-2 rounded-full border border-white/10 text-xs text-neutral-400 font-mono flex-wrap justify-center"
           style={{ background: 'rgba(10,10,10,0.65)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#00e676] rounded-sm"></div>GO</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#ffeb3b] rounded-sm"></div>YIELD</div>
@@ -300,8 +300,8 @@ function App() {
 
       {}
 
-      <div className="fixed bottom-4 right-4 z-20 pointer-events-auto">
-        <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl border border-white/10"
+      <div className="fixed bottom-4 right-4 z-20 pointer-events-auto max-w-[calc(100vw-2rem)]">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-white/10"
           style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
 
           {}
