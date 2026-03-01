@@ -166,14 +166,36 @@ class VehicleAgent:
         return None
 
     def _is_inside_any_intersection(self):
-        """Check if vehicle is inside any intersection on the grid.
-        Works for both demo vehicles (center intersection) and background vehicles (grid).
-        """
-        # For background vehicles — use grid intersection check
         if self._is_background:
             return self._is_inside_nearest_intersection()
-        # For demo vehicles — use the center intersection
         return self._entered_intersection and not self._passed_intersection
+
+    def _is_in_intersection_critical_zone(self, threshold=15.0):
+        if self._is_inside_any_intersection():
+            return True
+        if self._is_background:
+            return self._distance_to_nearest_stop_line() < threshold
+        return self._distance_to_stop_line() < threshold
+
+    def _is_at_grid_edge(self, margin=30.0):
+        from background_traffic import _MIN_X, _MAX_X, _MIN_Y, _MAX_Y
+        if self.x <= _MIN_X + margin or self.x >= _MAX_X - margin:
+            return True
+        if self.y <= _MIN_Y + margin or self.y >= _MAX_Y - margin:
+            return True
+        return False
+
+    def _has_road_ahead(self, look_ahead=60.0):
+        from background_traffic import _MIN_X, _MAX_X, _MIN_Y, _MAX_Y
+        rad = math.radians(self.direction)
+        future_x = self.x + math.sin(rad) * look_ahead
+        future_y = self.y + math.cos(rad) * look_ahead
+        pad = 40.0
+        if future_x < _MIN_X - pad or future_x > _MAX_X + pad:
+            return False
+        if future_y < _MIN_Y - pad or future_y > _MAX_Y + pad:
+            return False
+        return True
 
     def _apply_pullover(self):
         """Shift the vehicle laterally to the right side of the road and stop.
@@ -186,13 +208,16 @@ class VehicleAgent:
         emergency = self._detect_emergency_behind()
 
         if emergency is not None:
-            # ── Inside intersection: accelerate through, don't stop here ──
-            if self._is_inside_any_intersection():
+            can_clear = self._is_in_intersection_critical_zone(threshold=15.0)
+            if self._is_background and can_clear:
+                if not self._has_road_ahead(look_ahead=60.0):
+                    can_clear = False
+
+            if can_clear:
                 if not self._pulling_over:
-                    # Mark that we WANT to pull over but are deferring
                     self._pulling_over = True
                     self._pullover_offset = 0.0
-                    self._pullover_original_x = None  # will set when actually pulling over
+                    self._pullover_original_x = None
                     self._pullover_original_y = None
                     logger.info(f"[{self.agent_id}] Ambulance behind — accelerating through intersection first")
 
@@ -201,7 +226,6 @@ class VehicleAgent:
                         f"Accelerating through intersection, will pull over for {emergency['id']}"
                     )
 
-                # Accelerate to clear the intersection quickly
                 self.decision = "go"
                 self.reason = "clearing_intersection_for_emergency"
                 self.recommended_speed = min(MAX_SPEED, self.target_speed * 1.4)
@@ -387,6 +411,9 @@ class VehicleAgent:
         - Otherwise: physics-based safe speed v = sqrt(v_leader² + 2·decel·(gap - margin)).
         - Always returns the MINIMUM over all vehicles ahead.
         """
+        if self.is_emergency:
+            return MAX_SPEED
+
         nearby = self._get_nearby_vehicles_info()
         rad = math.radians(self.direction)
         dx_fwd = math.sin(rad)
@@ -419,16 +446,16 @@ class VehicleAgent:
             if dir_diff > DIR_TOLERANCE:
                 continue  # facing different direction
 
-            # Emergency vehicles skip vehicles that are pulling over for them
-            if self.is_emergency and o.get("decision") == "stop":
-                # Check V2X broadcasts for "pulling_over" from this vehicle
-                alerts = channel.get_broadcasts_for(self.agent_id, last_seconds=3.0)
-                is_pulling_over = any(
-                    a.from_id == o["id"] and a.alert_type == "pulling_over"
-                    for a in alerts
-                )
-                if is_pulling_over:
-                    continue  # this vehicle is yielding to us, skip it
+            if self.is_emergency:
+                other_decision = o.get("decision", "")
+                is_yielding = False
+                if other_decision == "stop" and perp > 4.0:
+                    is_yielding = True
+                alerts = channel.get_broadcasts_for(self.agent_id, last_seconds=5.0)
+                if any(a.from_id == o["id"] and a.alert_type == "pulling_over" for a in alerts):
+                    is_yielding = True
+                if is_yielding:
+                    continue
 
             # ── Vehicle is ahead, same lane, same direction ──
             gap = proj
@@ -914,10 +941,15 @@ class VehicleAgent:
         return abs(self.x - ix) < STOP_LINE and abs(self.y - iy) < STOP_LINE
 
     def _bg_compute_risk_and_decision(self):
-        """Compute risk and decision for a background vehicle using V2X channel."""
-        # ── Pull over for emergency vehicle behind us ──
         if self._apply_pullover():
-            return  # pulling over or returning to lane — skip normal logic
+            return
+
+        if self.is_emergency:
+            self.decision = "go"
+            self.reason = "emergency_override"
+            self.recommended_speed = self.target_speed
+            self.risk_level = "low"
+            return
 
         others = channel.get_other_agents(self.agent_id)
         my_msg = self._build_message()
@@ -1008,7 +1040,7 @@ class VehicleAgent:
             angle_diff = abs(self.direction - other_msg.direction) % 360
             same_dir = angle_diff < 30 or angle_diff > 330
 
-            if my_axis == o_axis and same_dir and d < 80:
+            if my_axis == o_axis and same_dir and d < 80 and not self.is_emergency:
                 # Check if other is AHEAD of us (dot product with our heading)
                 rad = math.radians(self.direction)
                 fwd_x = math.sin(rad)
@@ -1264,17 +1296,17 @@ class VehicleAgent:
             else:
                 self._bg_compute_risk_and_decision()
 
-            # ── Safety override: following distance for background traffic ──
-            following_cap = self._compute_following_speed()
-            if following_cap < self.recommended_speed:
-                self.recommended_speed = following_cap
-                if following_cap < 0.5:
-                    self.decision = "stop"
-                    self.reason = "following_vehicle_stopped"
-                elif following_cap < self.target_speed * 0.5:
-                    self.decision = "brake"
-                    if "follow" not in self.reason:
-                        self.reason = "following_too_close"
+            if self.reason != "clearing_intersection_for_emergency":
+                following_cap = self._compute_following_speed()
+                if following_cap < self.recommended_speed:
+                    self.recommended_speed = following_cap
+                    if following_cap < 0.5:
+                        self.decision = "stop"
+                        self.reason = "following_vehicle_stopped"
+                    elif following_cap < self.target_speed * 0.5:
+                        self.decision = "brake"
+                        if "follow" not in self.reason:
+                            self.reason = "following_too_close"
 
             # ── Turn speed reduction: slow down when approaching a corner ──
             if len(self._waypoints) >= 2 and not self.is_drunk:
