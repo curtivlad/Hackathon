@@ -12,21 +12,15 @@ export function useKeyboardShortcuts({
 
       switch (e.key) {
         case "1":
-          startScenario("blind_intersection");
-          break;
-        case "2":
           startScenario("right_of_way");
           break;
-        case "3":
-          startScenario("multi_vehicle");
-          break;
-        case "4":
+        case "2":
           startScenario("multi_vehicle_traffic_light");
           break;
-        case "5":
+        case "3":
           startScenario("emergency_vehicle");
           break;
-        case "6":
+        case "4":
           startScenario("emergency_vehicle_no_lights");
           break;
         case "s":

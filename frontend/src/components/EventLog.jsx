@@ -82,7 +82,7 @@ export default function EventLog({ collisionPairs = [], agents = {} }) {
       {!collapsed && (
         <div
           ref={scrollRef}
-          className="max-h-40 overflow-y-auto px-3 pb-3 space-y-1"
+          className="max-h-40 overflow-y-auto px-3 pb-3 space-y-1 dark-scrollbar"
         >
           {events.length === 0 ? (
             <p className="text-neutral-600 text-xs font-mono py-2 text-center">

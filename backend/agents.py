@@ -85,6 +85,13 @@ class VehicleAgent:
         self._drunk_erratic_end = 0.0
         self._drunk_erratic_speed = 0.0
 
+        # Pull-over state — when an ambulance is behind, pull to the side
+        self._pulling_over = False          # currently pulling over
+        self._pullover_offset = 0.0         # how far we've shifted laterally
+        self._pullover_original_x = None    # original lane x before pull-over
+        self._pullover_original_y = None    # original lane y before pull-over
+        self._pullover_target_offset = 8.0  # how far to shift to the side (units)
+
     # ──────────────────────── Helpers ────────────────────────
 
     def _moves_on_y(self):
@@ -107,6 +114,193 @@ class VehicleAgent:
             return abs(self.y) >= STOP_LINE
         else:
             return abs(self.x) >= STOP_LINE
+
+    # ──────────────────────── Emergency Vehicle Pull-Over ────────────────────────
+
+    PULLOVER_DETECT_RANGE = 80.0   # how far behind to detect ambulance
+    PULLOVER_LATERAL_SHIFT = 14.0  # how far to shift to the side (road edge ~20 from lane)
+    PULLOVER_PERP_TOL = 14.0       # lateral tolerance for "same lane" (behind)
+    PULLOVER_DIR_TOL = 50.0        # heading tolerance
+
+    def _detect_emergency_behind(self):
+        """Check if an emergency vehicle is behind us on the same lane, approaching.
+        Returns the emergency vehicle info dict if found, else None.
+        """
+        if self.is_emergency or self.is_drunk:
+            return None  # emergencies don't pull over; drunk drivers ignore
+
+        nearby = self._get_nearby_vehicles_info()
+        rad = math.radians(self.direction)
+        fwd_x = math.sin(rad)
+        fwd_y = math.cos(rad)
+
+        for o in nearby:
+            if not o.get("is_emergency"):
+                continue
+
+            # Vector from us to the other vehicle
+            rel_x = o["x"] - self.x
+            rel_y = o["y"] - self.y
+
+            # Project onto our forward axis: negative = behind us
+            proj = rel_x * fwd_x + rel_y * fwd_y
+            if proj > 5.0:
+                continue  # ambulance is ahead, not behind — no need to pull over
+
+            if abs(proj) > self.PULLOVER_DETECT_RANGE:
+                continue  # too far
+
+            # Perpendicular distance — must be roughly same lane
+            perp = abs(rel_x * (-fwd_y) + rel_y * fwd_x)
+            if perp > self.PULLOVER_PERP_TOL:
+                continue  # different road entirely
+
+            # Heading similarity — ambulance going the same direction
+            dir_diff = abs(((o["direction"] - self.direction + 180) % 360) - 180)
+            if dir_diff > self.PULLOVER_DIR_TOL:
+                continue  # not heading the same way
+
+            # Ambulance is behind us on the same lane!
+            return o
+
+        return None
+
+    def _is_inside_any_intersection(self):
+        if self._is_background:
+            return self._is_inside_nearest_intersection()
+        return self._entered_intersection and not self._passed_intersection
+
+    def _is_in_intersection_critical_zone(self, threshold=15.0):
+        if self._is_inside_any_intersection():
+            return True
+        if self._is_background:
+            return self._distance_to_nearest_stop_line() < threshold
+        return self._distance_to_stop_line() < threshold
+
+    def _is_at_grid_edge(self, margin=30.0):
+        from background_traffic import _MIN_X, _MAX_X, _MIN_Y, _MAX_Y
+        if self.x <= _MIN_X + margin or self.x >= _MAX_X - margin:
+            return True
+        if self.y <= _MIN_Y + margin or self.y >= _MAX_Y - margin:
+            return True
+        return False
+
+    def _has_road_ahead(self, look_ahead=60.0):
+        from background_traffic import _MIN_X, _MAX_X, _MIN_Y, _MAX_Y
+        rad = math.radians(self.direction)
+        future_x = self.x + math.sin(rad) * look_ahead
+        future_y = self.y + math.cos(rad) * look_ahead
+        pad = 40.0
+        if future_x < _MIN_X - pad or future_x > _MAX_X + pad:
+            return False
+        if future_y < _MIN_Y - pad or future_y > _MAX_Y + pad:
+            return False
+        return True
+
+    def _apply_pullover(self):
+        """Shift the vehicle laterally to the right side of the road and stop.
+        Called each tick while pulling over. Returns True if actively pulling over.
+
+        Special case: if the vehicle is inside an intersection when it detects
+        the ambulance, it accelerates through the intersection first and only
+        pulls over after exiting.
+        """
+        emergency = self._detect_emergency_behind()
+
+        if emergency is not None:
+            can_clear = self._is_in_intersection_critical_zone(threshold=15.0)
+            if self._is_background and can_clear:
+                if not self._has_road_ahead(look_ahead=60.0):
+                    can_clear = False
+
+            if can_clear:
+                if not self._pulling_over:
+                    self._pulling_over = True
+                    self._pullover_offset = 0.0
+                    self._pullover_original_x = None
+                    self._pullover_original_y = None
+                    logger.info(f"[{self.agent_id}] Ambulance behind — accelerating through intersection first")
+
+                    self._broadcast_v2x_alert(
+                        "pulling_over",
+                        f"Accelerating through intersection, will pull over for {emergency['id']}"
+                    )
+
+                self.decision = "go"
+                self.reason = "clearing_intersection_for_emergency"
+                self.recommended_speed = min(MAX_SPEED, self.target_speed * 1.4)
+                return True
+
+            # ── Outside intersection: actually pull over ──
+            if not self._pulling_over:
+                self._pulling_over = True
+                self._pullover_offset = 0.0
+                logger.info(f"[{self.agent_id}] Pulling over for emergency {emergency['id']}")
+
+                self._broadcast_v2x_alert(
+                    "pulling_over",
+                    f"Pulling over for emergency vehicle {emergency['id']}"
+                )
+
+            # Save original position when we first start the lateral shift
+            if self._pullover_original_x is None:
+                self._pullover_original_x = self.x
+                self._pullover_original_y = self.y
+
+            # Shift laterally to the right (toward the road edge)
+            if self._pullover_offset < self.PULLOVER_LATERAL_SHIFT:
+                shift_speed = 15.0 * UPDATE_INTERVAL  # lateral shift speed
+                actual_shift = min(
+                    shift_speed,
+                    self.PULLOVER_LATERAL_SHIFT - self._pullover_offset
+                )
+                self._pullover_offset += actual_shift
+
+                # Right side = heading + 90° (clockwise)
+                right_rad = math.radians(self.direction + 90.0)
+                right_x = math.sin(right_rad)
+                right_y = math.cos(right_rad)
+
+                self.x += right_x * actual_shift
+                self.y += right_y * actual_shift
+
+            # Stop the vehicle
+            self.decision = "stop"
+            self.reason = "pullover_emergency"
+            self.recommended_speed = 0.0
+            self.speed = max(0.0, self.speed - DECELERATION * UPDATE_INTERVAL)
+            return True
+
+        elif self._pulling_over:
+            # Ambulance has passed — return to original lane
+            if self._pullover_offset > 0.5:
+                # Shift back to the left
+                shift_speed = 10.0 * UPDATE_INTERVAL
+                actual_shift = min(shift_speed, self._pullover_offset)
+                self._pullover_offset -= actual_shift
+
+                # Left = heading - 90° (counterclockwise)
+                left_rad = math.radians(self.direction - 90.0)
+                left_x = math.sin(left_rad)
+                left_y = math.cos(left_rad)
+
+                self.x += left_x * actual_shift
+                self.y += left_y * actual_shift
+
+                self.decision = "stop"
+                self.reason = "returning_to_lane"
+                self.recommended_speed = 0.0
+                return True
+            else:
+                # Fully returned — resume normal driving
+                self._pulling_over = False
+                self._pullover_offset = 0.0
+                self._pullover_original_x = None
+                self._pullover_original_y = None
+                logger.info(f"[{self.agent_id}] Returned to lane, resuming")
+                return False
+
+        return False
 
     # ──────────────────────── Traffic Light Detection ────────────────────────
 
@@ -159,9 +353,13 @@ class VehicleAgent:
     # ──────────────────────── Nearby vehicles for LLM ────────────────────────
 
     def _get_nearby_vehicles_info(self):
-        """Construieste lista cu informatii despre vehiculele din jur pentru LLM."""
+        """Construieste lista cu informatii despre vehiculele din jur pentru LLM.
+        Include metadata suplimentara: ahead_in_my_lane, gap (distanta frontala)."""
         others = channel.get_other_agents(self.agent_id)
         my_msg = self._build_message()
+        rad = math.radians(self.direction)
+        fwd_x = math.sin(rad)
+        fwd_y = math.cos(rad)
         result = []
         for agent_id, msg in others.items():
             if msg.agent_type != "vehicle":
@@ -171,7 +369,16 @@ class VehicleAgent:
                 continue
             ttc = compute_ttc(my_msg, msg)
             ttc_str = f"{ttc:.1f}s" if ttc < 999 else "inf"
-            result.append({
+
+            # ── Detect if vehicle is directly ahead in the same lane ──
+            rel_x = msg.x - self.x
+            rel_y = msg.y - self.y
+            proj = rel_x * fwd_x + rel_y * fwd_y   # forward distance
+            perp = abs(rel_x * (-fwd_y) + rel_y * fwd_x)  # lateral offset
+            dir_diff = abs(((msg.direction - self.direction + 180) % 360) - 180)
+            is_ahead = proj > 0 and proj < 45 and perp < 8 and dir_diff < 35
+
+            entry = {
                 "id": msg.agent_id,
                 "x": msg.x,
                 "y": msg.y,
@@ -183,37 +390,99 @@ class VehicleAgent:
                 "dist": dist,
                 "ttc": ttc_str,
                 "decision": msg.decision,  # ce decizie a luat celalalt agent
-            })
+                "ahead_in_my_lane": is_ahead,
+                "gap": round(proj, 1) if is_ahead else None,
+            }
+            result.append(entry)
         return result
 
-    # ──────────────────────── Emergency rear-collision avoidance ────────────────────────
+    # ──────────────────────── Following-distance rear-collision avoidance ────────────────────────
 
-    def _emergency_rear_collision_speed(self):
+    def _compute_following_speed(self):
+        """
+        Compute safe following speed when a vehicle is ahead in the same lane.
+        Works for ALL vehicles (emergency, normal, background).
+        Returns the maximum safe speed; the caller should cap recommended_speed to this.
+
+        Logic:
+        - Detect vehicles ahead in the same lane (within ±10 units perp, ±45° heading).
+        - If gap <= MIN_FOLLOW_GAP (5m): match leader speed exactly (or 0 if stopped).
+        - If gap <= 2x MIN_FOLLOW_GAP: blend towards leader speed with proportional approach.
+        - Otherwise: physics-based safe speed v = sqrt(v_leader² + 2·decel·(gap - margin)).
+        - Always returns the MINIMUM over all vehicles ahead.
+        """
+        if self.is_emergency:
+            return MAX_SPEED
+
         nearby = self._get_nearby_vehicles_info()
         rad = math.radians(self.direction)
         dx_fwd = math.sin(rad)
         dy_fwd = math.cos(rad)
+
+        MIN_FOLLOW_GAP = 15.0   # absolute minimum gap (meters)
+        COMFORT_GAP = 20.0      # comfortable following gap
+        DETECT_RANGE = 45.0     # how far ahead to look
+        PERP_TOLERANCE = 8.0    # lateral tolerance for same-lane
+        DIR_TOLERANCE = 35.0    # heading tolerance (degrees)
+
+        min_safe_speed = MAX_SPEED
+
         for o in nearby:
             rel_x = o["x"] - self.x
             rel_y = o["y"] - self.y
+
+            # Project onto forward direction → how far ahead
             proj = rel_x * dx_fwd + rel_y * dy_fwd
-            if proj < 0 or proj > 30:
-                continue
+            if proj < 0 or proj > DETECT_RANGE:
+                continue  # behind us or too far ahead
+
+            # Perpendicular distance → same lane check
             perp = abs(rel_x * (-dy_fwd) + rel_y * dx_fwd)
-            if perp > 8:
-                continue
+            if perp > PERP_TOLERANCE:
+                continue  # different lane
+
+            # Heading similarity → same direction check
             dir_diff = abs(((o["direction"] - self.direction + 180) % 360) - 180)
-            if dir_diff > 45:
-                continue
-            if o["speed"] < self.speed * 0.5:
-                gap = proj
-                safe_margin = 5.0
-                stopping_dist = max(0, gap - safe_margin)
-                if stopping_dist < 0.5:
-                    return max(o["speed"], 0.0)
-                v_safe = math.sqrt(max(0, o["speed"] ** 2 + 2 * DECELERATION * stopping_dist))
-                return min(v_safe, MAX_SPEED)
-        return MAX_SPEED
+            if dir_diff > DIR_TOLERANCE:
+                continue  # facing different direction
+
+            if self.is_emergency:
+                other_decision = o.get("decision", "")
+                is_yielding = False
+                if other_decision == "stop" and perp > 4.0:
+                    is_yielding = True
+                alerts = channel.get_broadcasts_for(self.agent_id, last_seconds=5.0)
+                if any(a.from_id == o["id"] and a.alert_type == "pulling_over" for a in alerts):
+                    is_yielding = True
+                if is_yielding:
+                    continue
+
+            # ── Vehicle is ahead, same lane, same direction ──
+            gap = proj
+            leader_speed = o["speed"]
+
+            if gap <= MIN_FOLLOW_GAP:
+                # Critically close → match leader speed or stop
+                safe_speed = min(leader_speed, max(leader_speed * 0.8, 0.0))
+            elif gap <= COMFORT_GAP:
+                # Close range → gradually reduce to leader speed
+                # Linear interpolation: at MIN_FOLLOW_GAP → leader_speed,
+                #                       at COMFORT_GAP → target_speed
+                ratio = (gap - MIN_FOLLOW_GAP) / (COMFORT_GAP - MIN_FOLLOW_GAP)  # 0→1
+                safe_speed = leader_speed + ratio * max(0, self.target_speed - leader_speed)
+                # But never exceed a physics-safe limit
+                braking_dist = max(0, gap - MIN_FOLLOW_GAP)
+                v_physics = math.sqrt(max(0, leader_speed ** 2 + 2 * DECELERATION * braking_dist))
+                safe_speed = min(safe_speed, v_physics)
+            else:
+                # Far range → physics-based: can we stop in time if leader brakes?
+                braking_dist = max(0, gap - MIN_FOLLOW_GAP)
+                safe_speed = math.sqrt(max(0, leader_speed ** 2 + 2 * DECELERATION * braking_dist))
+
+            safe_speed = max(0.0, min(safe_speed, MAX_SPEED))
+            min_safe_speed = min(min_safe_speed, safe_speed)
+
+        return min_safe_speed
 
     # ──────────────────────── Decision Making (LLM + Adaptive Fallback) ────────────────────────
 
@@ -235,10 +504,14 @@ class VehicleAgent:
         # Broadcast V2X alerts based on current state
         self._send_situational_v2x_alerts()
 
+        # ── Pull over for emergency vehicle behind us ──
+        if self._apply_pullover():
+            return  # pulling over or returning to lane — skip normal logic
+
         if self.is_emergency:
             self.decision = "go"
             self.reason = "emergency_override"
-            self.recommended_speed = self._emergency_rear_collision_speed()
+            self.recommended_speed = self._compute_following_speed()
             self._fallback_consecutive = 0
             self._fallback_last_action = None
             return
@@ -290,6 +563,19 @@ class VehicleAgent:
                                 self.recommended_speed,
                                 max(1.5, self.target_speed * (dist_to_stop / 20.0))
                             )
+
+                # ── Safety override: following distance ──
+                # Even if LLM says "go", cap speed to safe following distance
+                following_cap = self._compute_following_speed()
+                if following_cap < self.recommended_speed:
+                    self.recommended_speed = following_cap
+                    if following_cap < 0.5:
+                        self.decision = "stop"
+                        self.reason = "following_vehicle_stopped"
+                    elif following_cap < self.target_speed * 0.5:
+                        self.decision = "brake"
+                        if "follow" not in self.reason:
+                            self.reason = "following_too_close"
 
                 # Daca e deja in intersectie, nu te opri
                 if self._entered_intersection:
@@ -509,9 +795,21 @@ class VehicleAgent:
         msg = self._build_message()
         self.recommended_speed = compute_recommended_speed(msg, self.decision, self.target_speed)
 
+        # ── Safety override: following distance ──
+        following_cap = self._compute_following_speed()
+        if following_cap < self.recommended_speed:
+            self.recommended_speed = following_cap
+            if following_cap < 0.5:
+                self.decision = "stop"
+                self.reason = "following_vehicle_stopped"
+            elif following_cap < self.target_speed * 0.5:
+                self.decision = "brake"
+                if "follow" not in self.reason:
+                    self.reason = "following_too_close"
+
         if self._entered_intersection:
             self.decision = "go"
-            self.recommended_speed = self.target_speed
+            self.recommended_speed = max(self.recommended_speed, self.target_speed * 0.5)
 
         self._record_fallback_decision(self.decision, self.reason)
 
@@ -643,7 +941,16 @@ class VehicleAgent:
         return abs(self.x - ix) < STOP_LINE and abs(self.y - iy) < STOP_LINE
 
     def _bg_compute_risk_and_decision(self):
-        """Compute risk and decision for a background vehicle using V2X channel."""
+        if self._apply_pullover():
+            return
+
+        if self.is_emergency:
+            self.decision = "go"
+            self.reason = "emergency_override"
+            self.recommended_speed = self.target_speed
+            self.risk_level = "low"
+            return
+
         others = channel.get_other_agents(self.agent_id)
         my_msg = self._build_message()
 
@@ -662,11 +969,13 @@ class VehicleAgent:
             o_rad = math.radians(other_msg.direction)
             o_axis = "NS" if abs(math.cos(o_rad)) >= abs(math.sin(o_rad)) else "EW"
             if my_axis == o_axis:
+                # Same axis — check if they're on separate lanes (no collision possible)
+                perp_dist = abs(self.x - other_msg.x) if my_axis == "NS" else abs(self.y - other_msg.y)
+                if perp_dist > 12.0:
+                    continue  # different lanes on same axis — no collision risk
                 angle_diff = abs(self.direction - other_msg.direction) % 360
                 if abs(angle_diff - 180) < 15:
-                    perp_dist = abs(self.x - other_msg.x) if my_axis == "NS" else abs(self.y - other_msg.y)
-                    if perp_dist < 25.0:
-                        continue  # genuinely opposite directions on same road
+                    continue  # opposite directions on same road — separate lanes
             ttc = compute_ttc(my_msg, other_msg)
             if ttc < 3.0:
                 self.risk_level = "collision"
@@ -715,14 +1024,23 @@ class VehicleAgent:
             if d > 150:
                 continue
 
-            # ── Same-lane, same-direction: follow the leader ──
+            # ── Skip vehicles on same axis but different lanes (no collision outside intersection) ──
             my_axis = self._get_movement_axis()
             o_rad = math.radians(other_msg.direction)
             o_axis = "NS" if abs(math.cos(o_rad)) >= abs(math.sin(o_rad)) else "EW"
+            if my_axis == o_axis:
+                perp_dist = abs(self.x - other_msg.x) if my_axis == "NS" else abs(self.y - other_msg.y)
+                if perp_dist > 12.0:
+                    continue  # different lanes on same axis — ignore completely
+                angle_diff_check = abs(self.direction - other_msg.direction) % 360
+                if abs(angle_diff_check - 180) < 15:
+                    continue  # opposite direction on same road — separate lanes
+
+            # ── Same-lane, same-direction: follow the leader ──
             angle_diff = abs(self.direction - other_msg.direction) % 360
             same_dir = angle_diff < 30 or angle_diff > 330
 
-            if my_axis == o_axis and same_dir and d < 80:
+            if my_axis == o_axis and same_dir and d < 80 and not self.is_emergency:
                 # Check if other is AHEAD of us (dot product with our heading)
                 rad = math.radians(self.direction)
                 fwd_x = math.sin(rad)
@@ -730,14 +1048,15 @@ class VehicleAgent:
                 dx = other_msg.x - self.x
                 dy = other_msg.y - self.y
                 dot = fwd_x * dx + fwd_y * dy
-                if dot > 0:  # other is ahead
+                if dot > 0:  # other is ahead, same lane (perp already checked above)
                     # Follow: match speed, keep distance
+                    gap = dot  # forward distance (not euclidean)
                     safe_dist = 25.0
-                    if d < safe_dist:
+                    if gap < safe_dist:
                         self.decision = "brake"
                         self.reason = "following"
                         self.recommended_speed = max(0.0, other_msg.speed * 0.7)
-                    elif d < safe_dist * 2:
+                    elif gap < safe_dist * 2:
                         self.decision = "go"
                         self.reason = "following"
                         self.recommended_speed = min(self.target_speed, other_msg.speed)
@@ -977,6 +1296,18 @@ class VehicleAgent:
             else:
                 self._bg_compute_risk_and_decision()
 
+            if self.reason != "clearing_intersection_for_emergency":
+                following_cap = self._compute_following_speed()
+                if following_cap < self.recommended_speed:
+                    self.recommended_speed = following_cap
+                    if following_cap < 0.5:
+                        self.decision = "stop"
+                        self.reason = "following_vehicle_stopped"
+                    elif following_cap < self.target_speed * 0.5:
+                        self.decision = "brake"
+                        if "follow" not in self.reason:
+                            self.reason = "following_too_close"
+
             # ── Turn speed reduction: slow down when approaching a corner ──
             if len(self._waypoints) >= 2 and not self.is_drunk:
                 next_tx, next_ty = self._waypoints[0]
@@ -998,8 +1329,8 @@ class VehicleAgent:
                             self.target_speed * turn_factor
                         )
 
-            # Anti-deadlock
-            if self.decision in ("yield", "stop"):
+            # Anti-deadlock (but not when pulling over for emergency)
+            if self.decision in ("yield", "stop") and self.reason not in ("pullover_emergency", "returning_to_lane"):
                 yield_counter += 1
                 if yield_counter > 60:
                     self.decision = "go"
@@ -1051,6 +1382,10 @@ class VehicleAgent:
         self._passed_intersection = False
         self._fallback_consecutive = 0
         self._fallback_last_action = None
+        self._pulling_over = False
+        self._pullover_offset = 0.0
+        self._pullover_original_x = None
+        self._pullover_original_y = None
         self._llm_brain.reset()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
@@ -1067,6 +1402,7 @@ class VehicleAgent:
             "decision": self.decision, "reason": self.reason,
             "is_emergency": self.is_emergency,
             "is_drunk": self.is_drunk,
+            "pulling_over": self._pulling_over,
         }
         # Include LLM + memory stats
         llm_stats = self._llm_brain.get_stats()

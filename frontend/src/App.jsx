@@ -5,7 +5,7 @@ import IntersectionMap from './components/IntersectionMap';
 import RiskAlert from './components/RiskAlert';
 import VehicleStatus from './components/VehicleStatus';
 import EventLog from './components/EventLog';
-import { ShieldCheck, ShieldAlert, Car, Settings, Activity, Navigation, ZoomIn, ZoomOut, Wine, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, Car, Settings, Activity, Navigation, ZoomIn, ZoomOut, Wine, Mic, MicOff, Volume2, VolumeX, ChevronLeft, ChevronRight } from 'lucide-react';
 
 function App() {
   const {
@@ -38,10 +38,10 @@ function App() {
   const trafficLightIntersections = state?.traffic_light_intersections || [];
 
   const demoAgents = Object.values(agents || {}).filter(
-    (a) => a.agent_type === 'vehicle' && !a.agent_id?.startsWith('BG_') && !a.agent_id?.startsWith('DRUNK_')
+    (a) => a.agent_type === 'vehicle' && !a.agent_id?.startsWith('BG_') && !a.agent_id?.startsWith('AMBULANCE_') && !a.agent_id?.startsWith('DRUNK_')
   ).length;
   const bgAgents = Object.values(agents || {}).filter(
-    (a) => a.agent_type === 'vehicle' && a.agent_id?.startsWith('BG_')
+    (a) => a.agent_type === 'vehicle' && (a.agent_id?.startsWith('BG_') || a.agent_id?.startsWith('AMBULANCE_'))
   ).length;
   const drunkAgents = Object.values(agents || {}).filter(
     (a) => a.agent_type === 'vehicle' && a.is_drunk
@@ -149,9 +149,7 @@ function App() {
           </h3>
           <div className="flex flex-col gap-2">
             <ScenarioBtn label="3 Vehicles — Right of Way" onClick={() => startScenario('right_of_way')} hoverColor="green" />
-            <ScenarioBtn label="4 Vehicles — Right of Way" onClick={() => startScenario('multi_vehicle')} hoverColor="green" />
             <ScenarioBtn label="4 Vehicles — Traffic Light" onClick={() => startScenario('multi_vehicle_traffic_light')} hoverColor="green" />
-            <ScenarioBtn label="Blind Intersection" onClick={() => startScenario('blind_intersection')} hoverColor="yellow" />
             <ScenarioBtn label="Ambulance — Traffic Light" onClick={() => startScenario('emergency_vehicle')} hoverColor="red" />
             <ScenarioBtn label="Ambulance — No Light" onClick={() => startScenario('emergency_vehicle_no_lights')} hoverColor="orange" />
             <ScenarioBtn label="Drunk Driver" onClick={() => startScenario('drunk_driver')} hoverColor="pink" />
@@ -177,7 +175,7 @@ function App() {
         >
           {rightOpen ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
-        <div className="w-80 mr-4 rounded-2xl border border-white/10 p-5 max-h-[calc(100vh-7rem)] overflow-y-auto"
+        <div className="w-80 mr-4 rounded-2xl border border-white/10 p-5 max-h-[calc(100vh-7rem)] overflow-y-auto dark-scrollbar"
           style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}>
           <VehicleStatus agents={agents} infrastructure={state?.infrastructure || {}} />
         </div>

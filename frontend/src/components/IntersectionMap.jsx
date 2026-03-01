@@ -13,6 +13,7 @@ const COLORS = {
   tree: "#1c2e1f",
   vehicle_go: "#00e676",
   vehicle_yield: "#ffeb3b",
+  vehicle_brake: "#ff9800",
   vehicle_stop: "#f44336",
   emergency: "#ff1744",
   drunk: "#FF69B4",
@@ -489,14 +490,20 @@ function drawTrafficLights(ctx, camera, phase, demo) {
 function drawVehicle(ctx, camera, agent) {
   const s = worldToScreen(agent.x, agent.y, camera);
   const decision = agent.decision || "go";
+  const speedKmh = (agent.speed || 0) * 3.6;
+  // Effective decision: brake (>5km/h) vs stop (≤5km/h) based on actual speed
+  const effectiveDecision = (decision === "brake" || decision === "stop")
+    ? (speedKmh > 5 ? "brake" : "stop")
+    : decision;
   let color;
   if (agent.is_drunk) color = COLORS.drunk;
   else if (agent.is_emergency) color = COLORS.emergency;
-  else if (decision === "go") color = COLORS.vehicle_go;
-  else if (decision === "yield") color = COLORS.vehicle_yield;
+  else if (effectiveDecision === "go") color = COLORS.vehicle_go;
+  else if (effectiveDecision === "yield") color = COLORS.vehicle_yield;
+  else if (effectiveDecision === "brake") color = COLORS.vehicle_brake;
   else color = COLORS.vehicle_stop;
 
-  const isBg = agent.agent_id?.startsWith("BG_");
+  const isBg = agent.agent_id?.startsWith("BG_") || agent.agent_id?.startsWith("AMBULANCE_");
   const isDrunk = agent.is_drunk;
 
   if (isDrunk) { ctx.shadowColor = COLORS.drunk; ctx.shadowBlur = 18; }
@@ -525,6 +532,36 @@ function drawVehicle(ctx, camera, agent) {
   ctx.restore();
   ctx.shadowBlur = 0;
 
+  // ── Pull-over indicator (flashing amber outline + hazard lights) ──
+  if (agent.pulling_over) {
+    const isClearing = agent.reason === "clearing_intersection_for_emergency";
+    const flash = Math.sin(Date.now() / 150) > 0; // fast blink
+    if (flash) {
+      ctx.save();
+      ctx.translate(s.sx, s.sy);
+      ctx.rotate((agent.direction * Math.PI) / 180);
+      ctx.strokeStyle = isClearing ? "#00e5ff" : "#ffab00";
+      ctx.lineWidth = 2.5 * camera.zoom;
+      ctx.beginPath();
+      ctx.roundRect(-w / 2 - 2 * camera.zoom, -h / 2 - 2 * camera.zoom, w + 4 * camera.zoom, h + 4 * camera.zoom, 3 * camera.zoom);
+      ctx.stroke();
+      // Small dots at corners (hazard lights)
+      ctx.fillStyle = isClearing ? "#00e5ff" : "#ffab00";
+      const dotR = 1.5 * camera.zoom;
+      ctx.beginPath(); ctx.arc(-w / 2, -h / 2, dotR, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(w / 2, -h / 2, dotR, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(-w / 2, h / 2, dotR, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(w / 2, h / 2, dotR, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    if (camera.zoom > 0.5) {
+      ctx.fillStyle = isClearing ? "#00e5ff" : "#ffab00";
+      ctx.font = `bold ${Math.max(8, 9 * camera.zoom)}px monospace`;
+      ctx.textAlign = "center";
+      ctx.fillText(isClearing ? "⚡ CLEARING" : "⚠ PULL OVER", s.sx, s.sy - h - 4 * camera.zoom);
+    }
+  }
+
   if (camera.zoom > 0.6) {
     if (isDrunk) {
       ctx.fillStyle = COLORS.drunk;
@@ -545,14 +582,15 @@ function drawVehicle(ctx, camera, agent) {
       ctx.font = `${Math.max(7, 8 * camera.zoom)}px monospace`;
       ctx.fillText(`${(agent.speed * 3.6).toFixed(0)} km/h`, s.sx, s.sy + h + 16 * camera.zoom);
     } else if (camera.zoom > 0.8) {
-      ctx.fillStyle = "rgba(255,255,255,0.5)";
+      const displayLabel = agent.agent_id?.startsWith("AMBULANCE_") ? "AMBULANCE" : agent.agent_id;
+      ctx.fillStyle = agent.agent_id?.startsWith("AMBULANCE_") ? COLORS.emergency : "rgba(255,255,255,0.5)";
       ctx.font = `bold ${Math.max(7, 8 * camera.zoom)}px monospace`;
       ctx.textAlign = "center";
-      ctx.fillText(agent.agent_id, s.sx, s.sy + h + 6 * camera.zoom);
+      ctx.fillText(displayLabel, s.sx, s.sy + h + 6 * camera.zoom);
       if (agent.decision && agent.decision !== "go") {
         ctx.fillStyle = color;
         ctx.font = `bold ${Math.max(6, 7 * camera.zoom)}px monospace`;
-        ctx.fillText(agent.decision.toUpperCase(), s.sx, s.sy + h + 15 * camera.zoom);
+        ctx.fillText(effectiveDecision.toUpperCase(), s.sx, s.sy + h + 15 * camera.zoom);
       }
     }
   }
@@ -747,7 +785,7 @@ export default function IntersectionMap({
       for (const a of Object.values(interpolatedAgents)) {
         if (a.agent_type !== "vehicle") continue;
         if (a.is_drunk) drunkV.push(a);
-        else if (a.agent_id?.startsWith("BG_")) bgV.push(a);
+        else if (a.agent_id?.startsWith("BG_") || a.agent_id?.startsWith("AMBULANCE_")) bgV.push(a);
         else demoV.push(a);
       }
       for (const v of bgV) drawVehicle(ctx, cam, v);
@@ -763,10 +801,6 @@ export default function IntersectionMap({
           drawTrafficLights(ctx, cam, tli.phase, tli);
         }
       }
-
-      ctx.fillStyle = "rgba(255,255,255,0.2)";
-      ctx.font = "11px monospace"; ctx.textAlign = "right";
-      ctx.fillText(`Zoom: ${(cam.zoom * 100).toFixed(0)}%`, cam.canvasW - 12, cam.canvasH - 12);
 
       rafRef.current = requestAnimationFrame(renderFrame);
     };

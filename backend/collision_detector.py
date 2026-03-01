@@ -82,9 +82,33 @@ def _are_on_same_road_opposite_dirs(a1: V2XMessage, a2: V2XMessage) -> bool:
     return abs(angle_diff - 180) < 10
 
 
+def _are_following_same_direction(a1: V2XMessage, a2: V2XMessage) -> bool:
+    """Doua masini pe acelasi drum, aceeasi directie = following.
+    Coliziunea rear-end este gestionata de logica de following distance din agents,
+    NU de detectorul de coliziune la intersectie."""
+    r1 = math.radians(a1.direction)
+    r2 = math.radians(a2.direction)
+    ax1 = "NS" if abs(math.cos(r1)) >= abs(math.sin(r1)) else "EW"
+    ax2 = "NS" if abs(math.cos(r2)) >= abs(math.sin(r2)) else "EW"
+    if ax1 != ax2:
+        return False
+    angle_diff = abs(a1.direction - a2.direction) % 360
+    if angle_diff > 180:
+        angle_diff = 360 - angle_diff
+    if angle_diff > 30:
+        return False
+    # Verify they're close in the perpendicular axis (same lane corridor)
+    if ax1 == "NS":
+        return abs(a1.x - a2.x) < 25.0
+    else:
+        return abs(a1.y - a2.y) < 25.0
+
+
 def assess_intersection_risk(agent1: V2XMessage, agent2: V2XMessage) -> str:
     if _are_on_same_road_opposite_dirs(agent1, agent2):
         return "low"
+    if _are_following_same_direction(agent1, agent2):
+        return "low"  # rear-end risk handled by following distance logic in agents
 
     t1 = time_to_intersection(agent1)
     t2 = time_to_intersection(agent2)
