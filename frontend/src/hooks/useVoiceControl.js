@@ -1,25 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
-/**
- * useVoiceControl — Robust Voice Commands (Speech Recognition) + TTS alerts.
- *
- * Supported voice commands (English):
- *   "start"                       — start default scenario (right of way)
- *   "start ambulance/emergency"   — start emergency scenario
- *   "start drunk"                 — start drunk driver scenario
- *   "start traffic light"         — start traffic light scenario
- *   "start right of way"          — start right of way scenario
- *   "stop"                        — stop simulation
- *   "restart" / "reset"           — restart simulation
- *   "zoom in" / "closer"          — increase zoom
- *   "zoom out" / "further"        — decrease zoom
- *   "spawn drunk"                 — spawn a drunk driver
- *   "traffic"                     — toggle background traffic
- *
- * TTS: speaks collision/risk alerts when dangerous events appear.
- */
 
-// ─── Browser API detection ──────────────────────────────────────────
 const SpeechRecognitionAPI =
   typeof window !== "undefined"
     ? window.SpeechRecognition || window.webkitSpeechRecognition
@@ -28,7 +9,6 @@ const SpeechRecognitionAPI =
 const synthSupported =
   typeof window !== "undefined" && "speechSynthesis" in window;
 
-// ─── TTS Engine (queue-based, robust) ───────────────────────────────
 let _ttsUnlocked = false;
 const _ttsQueue = [];
 let _ttsSpeaking = false;
@@ -54,7 +34,6 @@ function _processQueue() {
   _ttsSpeaking = true;
 
   try {
-    // Cancel any stuck synthesis (Chrome bug workaround)
     window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(message);
@@ -63,7 +42,6 @@ function _processQueue() {
     utterance.pitch = 1.0;
     utterance.lang = "en-US";
 
-    // Chrome pause workaround: resume periodically
     const resumeInterval = setInterval(() => {
       if (!window.speechSynthesis.speaking) {
         clearInterval(resumeInterval);
@@ -83,7 +61,6 @@ function _processQueue() {
 
     window.speechSynthesis.speak(utterance);
 
-    // Safety timeout — if utterance takes more than 15s, force next
     setTimeout(() => {
       if (_ttsSpeaking) {
         try { window.speechSynthesis.cancel(); } catch (_) {}
@@ -99,7 +76,6 @@ function _processQueue() {
 
 function _speak(message, rate = 1.2, volume = 0.7) {
   if (!synthSupported) return;
-  // Limit queue size
   if (_ttsQueue.length >= 3) _ttsQueue.shift();
   _ttsQueue.push({ message, rate, volume });
   _processQueue();
@@ -113,7 +89,6 @@ function _cancelAllTTS() {
   }
 }
 
-// ─── Hook ───────────────────────────────────────────────────────────
 export function useVoiceControl({
   startScenario,
   stopSimulation,
@@ -137,7 +112,7 @@ export function useVoiceControl({
   const commandCooldownRef = useRef(0);
   const supported = !!SpeechRecognitionAPI;
 
-  /* Wrap setTtsEnabled to unlock Chrome TTS on user gesture */
+
   const setTtsEnabled = useCallback((valOrFn) => {
     setTtsEnabledRaw((prev) => {
       const next = typeof valOrFn === "function" ? valOrFn(prev) : valOrFn;
@@ -151,10 +126,8 @@ export function useVoiceControl({
     });
   }, []);
 
-  // Keep ref in sync
   useEffect(() => { voiceEnabledRef.current = voiceEnabled; }, [voiceEnabled]);
 
-  // Store latest callbacks in refs (stable reference)
   const callbacksRef = useRef({
     startScenario, stopSimulation, restartSimulation,
     spawnDrunkDriver, spawnPolice, toggleBackgroundTraffic, setZoom,
@@ -166,31 +139,25 @@ export function useVoiceControl({
     };
   }, [startScenario, stopSimulation, restartSimulation, spawnDrunkDriver, spawnPolice, toggleBackgroundTraffic, setZoom]);
 
-  // ─── Command handler with debounce ────────────────────────
   const handleCommand = useCallback((text) => {
-    // Debounce: ignore commands within 1s of each other
     const now = Date.now();
     if (now - commandCooldownRef.current < 1000) return false;
 
     const cb = callbacksRef.current;
     const confirm = (msg) => _speak(msg, 1.3, 0.6);
 
-    // Normalize: lowercase, trim, remove punctuation
     const t = text.toLowerCase().trim().replace(/[.,!?;:]/g, "");
 
     let matched = true;
 
-    // ── Stop (but not "start") ──
     if ((t.includes("stop") || t.includes("opreste")) && !t.includes("start")) {
       cb.stopSimulation?.();
       confirm("Simulation stopped");
 
-    // ── Restart ──
     } else if (t.includes("restart") || t.includes("reset") || t.includes("restarteaza")) {
       cb.restartSimulation?.();
       confirm("Simulation restarted");
 
-    // ── Start scenario ──
     } else if (t.includes("start") || t.includes("porneste") || t.includes("incepe")) {
       let scenario = "right_of_way";
       if (t.includes("ambulance") || t.includes("ambulanta") || t.includes("emergency") || t.includes("urgenta")) {
@@ -207,7 +174,6 @@ export function useVoiceControl({
       cb.startScenario?.(scenario);
       confirm("Scenario started");
 
-    // ── Zoom ──
     } else if (t.includes("zoom in") || t.includes("closer") || t.includes("mareste")) {
       cb.setZoom?.((prev) => Math.min(3.0, (prev || 0.7) + 0.2));
       confirm("Zooming in");
@@ -215,17 +181,14 @@ export function useVoiceControl({
       cb.setZoom?.((prev) => Math.max(0.15, (prev || 0.7) - 0.2));
       confirm("Zooming out");
 
-    // ── Spawn police ──
     } else if (t.includes("police") || t.includes("politie") || t.includes("politia")) {
       cb.spawnPolice?.();
       confirm("Police car spawned");
 
-    // ── Spawn drunk ──
     } else if (t.includes("spawn") || (t.includes("drunk") && !t.includes("start"))) {
       cb.spawnDrunkDriver?.();
       confirm("Drunk driver spawned");
 
-    // ── Toggle traffic ──
     } else if (t.includes("traffic") || t.includes("trafic")) {
       cb.toggleBackgroundTraffic?.();
       confirm("Background traffic toggled");
@@ -238,17 +201,14 @@ export function useVoiceControl({
     return matched;
   }, []);
 
-  // ─── Speech Recognition lifecycle ─────────────────────────
   useEffect(() => {
     if (!supported) return;
 
-    // Clean up any pending restart timeout
     if (restartTimeoutRef.current) {
       clearTimeout(restartTimeoutRef.current);
       restartTimeoutRef.current = null;
     }
 
-    // ── Turning OFF ──
     if (!voiceEnabled) {
       if (recognitionRef.current) {
         stoppedManuallyRef.current = true;
@@ -259,13 +219,11 @@ export function useVoiceControl({
       return;
     }
 
-    // ── Turning ON ──
     stoppedManuallyRef.current = false;
 
     function createAndStart() {
       if (!voiceEnabledRef.current || stoppedManuallyRef.current) return;
 
-      // Dispose old instance
       if (recognitionRef.current) {
         try { recognitionRef.current.abort(); } catch (_) {}
       }
@@ -290,7 +248,6 @@ export function useVoiceControl({
           let bestTranscript = "";
           let commandMatched = false;
 
-          // Try all alternatives for better matching
           for (let alt = 0; alt < result.length; alt++) {
             const transcript = result[alt].transcript.trim().toLowerCase();
             if (!bestTranscript) bestTranscript = transcript;
@@ -314,7 +271,6 @@ export function useVoiceControl({
           setListening(false);
           return;
         }
-        // Other errors (no-speech, network, audio-capture) — let onend restart
       };
 
       recognition.onend = () => {
@@ -358,7 +314,6 @@ export function useVoiceControl({
     };
   }, [voiceEnabled, supported, handleCommand]);
 
-  // ─── TTS collision/risk alerts ────────────────────────────
   useEffect(() => {
     if (!ttsEnabled) return;
     if (!collisionPairs || collisionPairs.length === 0) return;
@@ -391,7 +346,6 @@ export function useVoiceControl({
     _speak(msg, 1.0, 1.0);
   }, [collisionPairs, ttsEnabled]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => { _cancelAllTTS(); };
   }, []);

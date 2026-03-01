@@ -154,7 +154,7 @@ function App() {
               <Siren size={14} />
               <span>Spawn Police Car</span>
             </span>
-            <span className="text-xs font-bold text-blue-400">🚔</span>
+            <span className="text-xs font-bold text-blue-400"></span>
           </button>
 
           <h3 className="text-sm text-neutral-400 uppercase tracking-wider font-bold mb-3 flex items-center gap-2">
@@ -207,7 +207,7 @@ function App() {
         </div>
       </div>
 
-      {/* Event Log Panel */}
+      {}
       <div className="fixed bottom-14 left-4 z-20 w-80 pointer-events-auto">
         <EventLog collisionPairs={collisionPairs} agents={agents} />
       </div>
@@ -216,7 +216,7 @@ function App() {
         <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl border border-white/10"
           style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
 
-          {/* Voice Controls */}
+          {}
           {voiceSupported && (
             <>
               <button

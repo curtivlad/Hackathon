@@ -470,7 +470,6 @@ function drawCongestedIntersections(ctx, camera, grid, agents) {
     if (count >= CONGESTION_THRESHOLD) {
       const center = worldToScreen(inter.x, inter.y, camera);
       const r = 75 * camera.zoom;
-      // Intensity scales with congestion (4=base, 8+=max)
       const intensity = Math.min(1.0, (count - CONGESTION_THRESHOLD + 1) / 5);
       const alphaCore = 0.08 + 0.12 * intensity;
       const alphaMid = 0.04 + 0.06 * intensity;
@@ -534,7 +533,6 @@ function drawVehicle(ctx, camera, agent) {
   const s = worldToScreen(agent.x, agent.y, camera);
   const decision = agent.decision || "go";
   const speedKmh = (agent.speed || 0) * 3.6;
-  // Effective decision: brake (>5km/h) vs stop (≤5km/h) based on actual speed
   const effectiveDecision = (decision === "brake" || decision === "stop")
     ? (speedKmh > 5 ? "brake" : "stop")
     : decision;
@@ -577,7 +575,6 @@ function drawVehicle(ctx, camera, agent) {
   ctx.restore();
   ctx.shadowBlur = 0;
 
-  // ── Police: blue body + alternating red/blue flashing lights ──
   if (agent.is_police) {
     const policeFlash = Math.sin(Date.now() / 120) > 0; // fast alternation
     const leftColor = policeFlash ? "#ff1744" : "#0055ff";
@@ -586,12 +583,10 @@ function drawVehicle(ctx, camera, agent) {
     ctx.translate(s.sx, s.sy);
     ctx.rotate((agent.direction * Math.PI) / 180);
     const dotR = 2.2 * camera.zoom;
-    // Left light
     ctx.fillStyle = leftColor;
     ctx.shadowColor = leftColor;
     ctx.shadowBlur = 12 * camera.zoom;
     ctx.beginPath(); ctx.arc(-w / 2 + 1 * camera.zoom, -h / 2 + 2 * camera.zoom, dotR, 0, Math.PI * 2); ctx.fill();
-    // Right light
     ctx.fillStyle = rightColor;
     ctx.shadowColor = rightColor;
     ctx.shadowBlur = 12 * camera.zoom;
@@ -599,7 +594,6 @@ function drawVehicle(ctx, camera, agent) {
     ctx.shadowBlur = 0;
     ctx.restore();
   }
-  // ── Ambulance: red body + blue flashing lights ──
   else if (agent.is_emergency && !agent.is_drunk) {
     const ambuFlash = Math.sin(Date.now() / 150) > 0;
     if (ambuFlash) {
@@ -617,7 +611,6 @@ function drawVehicle(ctx, camera, agent) {
     }
   }
 
-  // ── Pull-over indicator (flashing amber outline + hazard lights) ──
   if (agent.pulling_over) {
     const isClearing = agent.reason === "clearing_intersection_for_emergency";
     const flash = Math.sin(Date.now() / 150) > 0; // fast blink
@@ -630,7 +623,6 @@ function drawVehicle(ctx, camera, agent) {
       ctx.beginPath();
       ctx.roundRect(-w / 2 - 2 * camera.zoom, -h / 2 - 2 * camera.zoom, w + 4 * camera.zoom, h + 4 * camera.zoom, 3 * camera.zoom);
       ctx.stroke();
-      // Small dots at corners (hazard lights)
       ctx.fillStyle = isClearing ? "#00e5ff" : "#ffab00";
       const dotR = 1.5 * camera.zoom;
       ctx.beginPath(); ctx.arc(-w / 2, -h / 2, dotR, 0, Math.PI * 2); ctx.fill();
@@ -650,7 +642,6 @@ function drawVehicle(ctx, camera, agent) {
   if (camera.zoom > 0.6) {
     if (isDrunk) {
       if (agent.arrested) {
-        // Arrested drunk driver — flashing red/blue handcuff effect
         const arrestFlash = Math.sin(Date.now() / 150) > 0;
         ctx.save();
         ctx.translate(s.sx, s.sy);
@@ -666,7 +657,7 @@ function drawVehicle(ctx, camera, agent) {
         ctx.fillStyle = arrestFlash ? "#ff1744" : "#0055ff";
         ctx.font = `bold ${Math.max(9, 10 * camera.zoom)}px monospace`;
         ctx.textAlign = "center";
-        ctx.fillText("🚔 ARRESTED", s.sx, s.sy + h + 6 * camera.zoom);
+        ctx.fillText("ARRESTED", s.sx, s.sy + h + 6 * camera.zoom);
       } else {
         ctx.fillStyle = COLORS.drunk;
         ctx.font = `bold ${Math.max(9, 10 * camera.zoom)}px monospace`;
@@ -700,7 +691,7 @@ function drawVehicle(ctx, camera, agent) {
         const chaseFlash = Math.sin(Date.now() / 200) > 0;
         ctx.fillStyle = chaseFlash ? "#ff1744" : "#0055ff";
         ctx.font = `bold ${Math.max(7, 8 * camera.zoom)}px monospace`;
-        ctx.fillText(agent.reason === "arresting_drunk" ? "🚔 ARRESTING" : "🚨 CHASING", s.sx, s.sy + h + 15 * camera.zoom);
+        ctx.fillText(agent.reason === "arresting_drunk" ? "ARRESTING" : "CHASING", s.sx, s.sy + h + 15 * camera.zoom);
       } else if (agent.decision && agent.decision !== "go") {
         ctx.fillStyle = color;
         ctx.font = `bold ${Math.max(6, 7 * camera.zoom)}px monospace`;

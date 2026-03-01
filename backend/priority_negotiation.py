@@ -1,6 +1,3 @@
-"""
-priority_negotiation.py — Negociere prioritate la intersectie.
-"""
 
 import math
 from typing import Dict, Tuple
@@ -11,7 +8,6 @@ STOP_LINE_DISTANCE = 35.0
 
 
 def _dist_to_stop_line(agent: V2XMessage) -> float:
-    """Distanta pe axa de miscare pana la marginea patratului intersectiei."""
     rad = math.radians(agent.direction)
     vx = math.sin(rad)
     vy = math.cos(rad)
@@ -22,7 +18,6 @@ def _dist_to_stop_line(agent: V2XMessage) -> float:
 
 
 def _is_inside_box(agent: V2XMessage) -> bool:
-    """Verifica daca vehiculul e in interiorul patratului intersectiei."""
     return abs(agent.x) < STOP_LINE_DISTANCE and abs(agent.y) < STOP_LINE_DISTANCE
 
 
@@ -37,14 +32,6 @@ def get_approach_direction(agent: V2XMessage) -> str:
 
 
 def is_on_right(my_direction: str, other_direction: str) -> bool:
-    """Verifica daca celalalt vehicul vine din dreapta mea.
-
-    Perspectiva soferului:
-    - Vin din nord (merg spre sud) => dreapta mea e vestul
-    - Vin din est  (merg spre vest) => dreapta mea e nordul
-    - Vin din sud  (merg spre nord) => dreapta mea e estul
-    - Vin din vest (merg spre est)  => dreapta mea e sudul
-    """
     right_map = {
         "north": "west",
         "east":  "north",

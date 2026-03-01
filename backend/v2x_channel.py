@@ -1,13 +1,3 @@
-"""
-v2x_channel.py — Canal SECURIZAT de comunicare V2X.
-
-Securitate integrata:
-- Fiecare mesaj publicat este SEMNAT cu HMAC-SHA256 (integritate)
-- Datele sunt VALIDATE la publicare (range checks, NaN, tipuri)
-- Agentii INACTIVI sunt detectati automat (stale timeout)
-- Broadcast-urile sunt RATE-LIMITED (anti-flood)
-- Mesajele corupte sunt RESPINSE si logate
-"""
 
 import threading
 import time
@@ -36,12 +26,11 @@ class V2XMessage:
     is_drunk: bool = False
     pulling_over: bool = False
     arrested: bool = False
-    hmac_signature: str = ""  # HMAC-SHA256 — protectie integritate
+    hmac_signature: str = ""
 
 
 @dataclass
 class V2XBroadcast:
-    """Mesaj broadcast V2X — alerte, intentii, avertizari intre agenti."""
     from_id: str
     alert_type: str
     message: str
@@ -57,21 +46,13 @@ class V2XChannel:
         self._history: List[V2XMessage] = []
         self._max_history = 500
         self._broadcasts: deque = deque(maxlen=200)
-        # Security stats
         self._rejected_messages = 0
         self._rejected_broadcasts = 0
 
     def publish(self, message: V2XMessage):
-        """
-        Publica un mesaj V2X SECURIZAT:
-        1. Valideaza datele (range, NaN, tipuri)
-        2. Semneaza cu HMAC
-        3. Marcheaza agentul ca activ (stale detection)
-        """
         from v2x_security import (sign_message, validate_message,
                                    stale_detector)
 
-        # Validare
         valid, sanitized, errors = validate_message(
             message.agent_id, message.agent_type,
             message.x, message.y, message.speed,
@@ -86,7 +67,6 @@ class V2XChannel:
                 f"[SECURITY] Mesaj CORUPT de la {message.agent_id}: {errors}  "
                 f"— aplicam datele sanitizate"
             )
-            # Aplicam valorile sanitizate in loc sa respingem total
             message.x = sanitized["x"]
             message.y = sanitized["y"]
             message.speed = sanitized["speed"]
@@ -94,13 +74,11 @@ class V2XChannel:
             message.risk_level = sanitized["risk_level"]
             message.timestamp = sanitized["timestamp"]
 
-        # Semnare HMAC
         message.hmac_signature = sign_message(
             message.agent_id, message.x, message.y,
             message.speed, message.direction, message.timestamp,
         )
 
-        # Marcheaza agent activ
         stale_detector.touch(message.agent_id)
 
         with self._lock:
@@ -110,12 +88,11 @@ class V2XChannel:
                 self._history.pop(0)
 
     def broadcast(self, alert: V2XBroadcast):
-        """Broadcast V2X cu rate limiting — previne flood."""
         from v2x_security import broadcast_limiter
 
         if not broadcast_limiter.allow(alert.from_id):
             self._rejected_broadcasts += 1
-            return  # silently drop — rate limited
+            return
 
         with self._lock:
             self._broadcasts.append(alert)
@@ -149,7 +126,6 @@ class V2XChannel:
         stale_detector.remove(agent_id)
 
     def cleanup_stale_agents(self) -> list:
-        """Sterge agentii inactivi din canal. Returneaza lista celor stersi."""
         from v2x_security import stale_detector
         stale = stale_detector.stale_agents()
         removed = []
@@ -164,7 +140,6 @@ class V2XChannel:
         return removed
 
     def verify_message(self, agent_id: str) -> bool:
-        """Verifica integritatea HMAC a ultimului mesaj de la un agent."""
         from v2x_security import verify_signature
         with self._lock:
             msg = self._messages.get(agent_id)
@@ -223,7 +198,6 @@ class V2XChannel:
             }
 
     def get_security_stats(self) -> dict:
-        """Statistici de securitate — pentru monitoring."""
         from v2x_security import stale_detector
         return {
             "rejected_messages": self._rejected_messages,
