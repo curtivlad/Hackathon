@@ -530,6 +530,9 @@ class VehicleAgent:
         if self._apply_pullover():
             return
 
+        if self.is_police and self._police_chase_drunk():
+            return
+
         if self.is_emergency:
             self.decision = "go"
             self.reason = "emergency_override"
@@ -1299,6 +1302,17 @@ class VehicleAgent:
             return
 
         while self._running:
+            if self._arrested:
+                if self._process_arrest():
+                    from simulation import simulation
+                    self._running = False
+                    channel.remove_agent(self.agent_id)
+                    simulation.vehicles = [v for v in simulation.vehicles if v.agent_id != self.agent_id]
+                    break
+                channel.publish(self._build_message())
+                time.sleep(UPDATE_INTERVAL)
+                continue
+
             self._make_decision()
             self._adjust_speed()
             self._update_position()

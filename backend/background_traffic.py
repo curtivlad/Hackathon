@@ -83,6 +83,18 @@ def get_grid_info() -> dict:
     }
 
 
+def get_scenario_grid_info() -> dict:
+    return {
+        "intersections": [{"x": 0.0, "y": 0.0}],
+        "grid_cols": 1,
+        "grid_rows": 1,
+        "grid_spacing": GRID_SPACING,
+        "demo_intersection": {"x": 0.0, "y": 0.0},
+        "traffic_light_positions": [],
+        "closed_loop": False,
+    }
+
+
 def _lane_xy(ix, iy, direction):
     d = direction % 360
     if d == 0:
