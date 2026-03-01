@@ -4,6 +4,7 @@ import json
 import time
 import threading
 import logging
+import sqlite3
 from collections import defaultdict
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -12,6 +13,30 @@ logger = logging.getLogger("telemetry")
 
 EXPORT_DIR = os.path.join(os.path.dirname(__file__), "telemetry_reports")
 os.makedirs(EXPORT_DIR, exist_ok=True)
+
+DB_PATH = os.path.join(os.path.dirname(__file__), "history.db")
+
+
+def init_db():
+    """Create history.db and the session_stats table if they do not exist."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS session_stats (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp       TEXT    NOT NULL,
+            duration        REAL    NOT NULL,
+            collisions_prevented INTEGER NOT NULL,
+            throughput      REAL    NOT NULL,
+            cooperation_score REAL  NOT NULL
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+init_db()
 
 
 class TelemetryCollector:
@@ -101,19 +126,37 @@ class TelemetryCollector:
             }
 
     def _calculate_cooperation_score(self) -> float:
-        score = 50.0
+        """
+        Cooperation score 0-100 based on how well V2X prevents collisions.
+        - Base 40  (system is running)
+        - +30 scaled by prevention count (logarithmic, caps around 15+)
+        - +20 scaled by prevention rate (prevented / total risky situations)
+        - +10 bonus if zero actual collision ticks occurred
+        - Small penalty for collision-level risk ticks that weren't resolved
+        """
+        import math
 
+        prevented = self._collisions_prevented
         total_risks = sum(self._risk_events.values())
-        collisions = self._risk_events.get("collision", 0)
+        collision_ticks = self._risk_events.get("collision", 0)
+        high_ticks = self._risk_events.get("high", 0)
 
-        if self._collisions_prevented > 0:
-            score += 25.0
+        score = 40.0
+
+        if prevented > 0:
+            score += 30.0 * min(1.0, math.log1p(prevented) / math.log1p(15))
 
         if total_risks > 0:
-            prevention_rate = self._collisions_prevented / max(total_risks, 1)
-            score += 25.0 * min(1.0, prevention_rate)
+            prevention_rate = prevented / max(prevented + collision_ticks, 1)
+            score += 20.0 * min(1.0, prevention_rate)
 
-        score -= collisions * 5.0
+        if collision_ticks == 0 and (prevented > 0 or high_ticks > 0):
+            score += 10.0
+
+        unresolved = max(0, collision_ticks - prevented)
+        if unresolved > 0:
+            penalty = min(15.0, unresolved * 0.5)
+            score -= penalty
 
         return round(max(0.0, min(100.0, score)), 1)
 
@@ -165,6 +208,28 @@ class TelemetryCollector:
                 pass
 
         return history
+
+    def save_session(self):
+        """Insert the current session statistics into the session_stats table."""
+        report = self.generate_report()
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute(
+            """
+            INSERT INTO session_stats
+                (timestamp, duration, collisions_prevented, throughput, cooperation_score)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                datetime.now().isoformat(),
+                report["session_duration_s"],
+                report["collisions_prevented"],
+                report["throughput_vehicles_per_min"],
+                report["cooperation_score"],
+            ),
+        )
+        conn.commit()
+        conn.close()
+        logger.info("Session stats saved to history.db")
 
     def reset(self):
         with self._lock:

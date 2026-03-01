@@ -28,6 +28,21 @@ class SimulationManager:
         self._start_time = None
         self._monitor_thread = None
         self._use_traffic_light = False
+        self._monitoring = False
+
+    def start_monitor(self):
+        """Start the collision-monitoring loop (used in CITY mode)."""
+        if self._monitoring:
+            return
+        self._monitoring = True
+        if not self._start_time:
+            self._start_time = time.time()
+        self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self._monitor_thread.start()
+
+    def stop_monitor(self):
+        """Stop the collision-monitoring loop."""
+        self._monitoring = False
 
     def set_mode(self, mode: str):
         if mode not in ("CITY", "SCENARIO"):
@@ -50,6 +65,7 @@ class SimulationManager:
         }
         self._start_time = None
         self.mode = mode
+        self._monitoring = False
 
 
     def scenario_emergency_vehicle(self):
@@ -199,6 +215,7 @@ class SimulationManager:
         scenarios.get(scenario, self.scenario_right_of_way)()
 
         self.running = True
+        self._monitoring = True
         self._start_time = time.time()
         self.stats["total_vehicles"] += len(self.vehicles)
 
@@ -217,7 +234,12 @@ class SimulationManager:
 
     def stop(self):
         self.running = False
+        self._monitoring = False
         telemetry.record_scenario_end()
+        try:
+            telemetry.save_session()
+        except Exception:
+            pass
         for vehicle in self.vehicles:
             vehicle.stop()
         if self._use_traffic_light:
@@ -241,10 +263,14 @@ class SimulationManager:
 
     def _monitor_loop(self):
         prev_risks = set()
-        while self.running:
+        while self._monitoring:
             all_states = channel.get_all_states()
             pairs = get_collision_pairs(all_states)
-            current_risks = {(p["agent1"], p["agent2"]) for p in pairs if p["risk"] == "collision"}
+            current_risks = {
+                (p["agent1"], p["agent2"])
+                for p in pairs
+                if p["risk"] in ("collision", "high")
+            }
             for pair in prev_risks:
                 if pair not in current_risks:
                     self.stats["collisions_prevented"] += 1
