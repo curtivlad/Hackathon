@@ -169,7 +169,10 @@ def sanitize_full_state(raw: dict) -> dict:
             "decision": _safe_str(a.get("decision", "go"), 20),
             "reason": _safe_str(a.get("reason", ""), 50),
             "is_emergency": bool(a.get("is_emergency", False)),
+            "is_police": bool(a.get("is_police", False)),
             "is_drunk": bool(a.get("is_drunk", False)),
+            "pulling_over": bool(a.get("pulling_over", False)),
+            "arrested": bool(a.get("arrested", False)),
             "llm_calls": int(a.get("llm_calls", 0)),
             "llm_errors": int(a.get("llm_errors", 0)),
             "memory_decisions": int(a.get("memory_decisions", 0)),
@@ -365,6 +368,49 @@ def spawn_drunk_driver():
     vehicle.start()
 
     logger.info(f"[DRUNK] Spawned {agent_id} at ({start_x:.0f}, {start_y:.0f}) dir={direction}")
+    return {"status": "spawned", "agent_id": agent_id, "x": start_x, "y": start_y, "direction": direction}
+
+
+@app.post("/simulation/spawn-police", dependencies=[Depends(verify_token), Depends(rate_limit)])
+def spawn_police_car():
+    """Spawn a police car on a random route through the grid."""
+    import random
+    from agents import VehicleAgent
+    from background_traffic import _build_route, _ALL_ROUTE_KEYS
+
+    # Pick a random route
+    route_key = random.choice(_ALL_ROUTE_KEYS)
+    waypoints, direction = _build_route(route_key)
+    if len(waypoints) < 2:
+        return {"error": "Could not find a valid route"}
+
+    start_x, start_y = waypoints[0]
+    speed = random.uniform(20.0, 25.0)
+
+    # Generate unique police car ID
+    if not hasattr(spawn_police_car, '_counter'):
+        spawn_police_car._counter = 0
+    spawn_police_car._counter += 1
+    agent_id = f"POLICE_{spawn_police_car._counter:03d}"
+
+    vehicle = VehicleAgent(
+        agent_id=agent_id,
+        start_x=start_x,
+        start_y=start_y,
+        direction=direction,
+        initial_speed=speed,
+        target_speed=speed,
+        intention="straight",
+        is_police=True,
+        waypoints=waypoints[1:],
+    )
+
+    # Add to simulation vehicles list so it shows up
+    simulation.vehicles.append(vehicle)
+    simulation.stats["total_vehicles"] += 1
+    vehicle.start()
+
+    logger.info(f"[POLICE] Spawned {agent_id} at ({start_x:.0f}, {start_y:.0f}) dir={direction}")
     return {"status": "spawned", "agent_id": agent_id, "x": start_x, "y": start_y, "direction": direction}
 
 

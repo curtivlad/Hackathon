@@ -151,13 +151,13 @@ function VehicleCardCompact({ agent }) {
 
 export default function VehicleStatus({ agents = {}, infrastructure = {} }) {
   const vehicles = Object.values(agents).filter(
-    a => a.agent_type === "vehicle" && !a.agent_id?.startsWith("BG_") && !a.agent_id?.startsWith("AMBULANCE_") && !a.is_drunk
+    a => a.agent_type === "vehicle" && !a.agent_id?.startsWith("BG_") && !a.agent_id?.startsWith("AMBULANCE_") && !a.agent_id?.startsWith("POLICE_") && !a.is_drunk
   );
   const drunkVehicles = Object.values(agents).filter(
     a => a.agent_type === "vehicle" && a.is_drunk
   );
   const bgVehicles = Object.values(agents).filter(
-    a => a.agent_type === "vehicle" && (a.agent_id?.startsWith("BG_") || a.agent_id?.startsWith("AMBULANCE_")) && !a.is_drunk
+    a => a.agent_type === "vehicle" && (a.agent_id?.startsWith("BG_") || a.agent_id?.startsWith("AMBULANCE_") || a.agent_id?.startsWith("POLICE_")) && !a.is_drunk
   );
 
   return (

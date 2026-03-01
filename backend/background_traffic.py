@@ -42,6 +42,7 @@ NUM_BG_VEHICLES = 25          # fixed number of persistent vehicles
 BG_SPEED_MIN = 12.0
 BG_SPEED_MAX = 20.0
 EMERGENCY_CHANCE = 0.08
+POLICE_CHANCE = 0.06
 MIN_SPAWN_DISTANCE = 45.0
 
 # ──────────────────────── Traffic Lights on Grid ────────────────────────
@@ -443,10 +444,13 @@ class BackgroundTrafficManager:
 
             speed = random.uniform(BG_SPEED_MIN, BG_SPEED_MAX)
             is_emergency = random.random() < EMERGENCY_CHANCE
+            is_police = (not is_emergency) and (random.random() < POLICE_CHANCE)
 
             self._counter += 1
             if is_emergency:
                 agent_id = f"AMBULANCE_{self._counter:03d}"
+            elif is_police:
+                agent_id = f"POLICE_{self._counter:03d}"
             else:
                 agent_id = f"BG_{self._counter:03d}"
 
@@ -461,9 +465,10 @@ class BackgroundTrafficManager:
                 start_y=ly,
                 direction=direction,
                 initial_speed=speed,
-                target_speed=speed if not is_emergency else min(speed * 1.4, 25.0),
+                target_speed=speed if not (is_emergency or is_police) else min(speed * 1.4, 25.0),
                 intention="straight",
                 is_emergency=is_emergency,
+                is_police=is_police,
                 waypoints=route_wps,
                 persistent=True,   # never despawn
             )
@@ -473,7 +478,7 @@ class BackgroundTrafficManager:
 
             vehicle.start()
             spawned += 1
-            etype = " [EMERGENCY]" if is_emergency else ""
+            etype = " [EMERGENCY]" if is_emergency else (" [POLICE]" if is_police else "")
             logger.debug(f"Spawned {agent_id}{etype} at ({lx:.0f}, {ly:.0f}) dir={direction}")
 
         logger.info(f"Spawned {spawned} persistent background vehicles")
