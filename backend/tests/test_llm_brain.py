@@ -1,6 +1,3 @@
-"""
-test_llm_brain.py — Teste unitare pentru AgentMemory si CircuitBreaker.
-"""
 
 import sys
 import os
@@ -10,10 +7,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from llm_brain import AgentMemory, CircuitBreaker
 
-
-# ══════════════════════════════════════════════════════════════
-#  AgentMemory tests
-# ══════════════════════════════════════════════════════════════
 
 class TestAgentMemory:
 
@@ -39,7 +32,7 @@ class TestAgentMemory:
         mem = AgentMemory("V1")
         for _ in range(5):
             mem.record_decision("x", {"action": "stop", "speed": 0.0, "reason": "red"})
-        assert mem._consecutive_same_action == 4  # first one doesn't count as repeat
+        assert mem._consecutive_same_action == 4
         assert mem._last_action == "stop"
 
     def test_consecutive_counter_resets_on_different_action(self):
@@ -119,13 +112,12 @@ class TestAgentMemory:
         for _ in range(20):
             mem.record_decision("waiting", {"action": "stop", "speed": 0.0, "reason": "red"})
         assert mem._consecutive_same_action >= 15
-        # Need wait_start too
         mem._wait_start = time.time() - 15
         assert mem.is_stuck() is True
 
     def test_is_stuck_by_wait_time(self):
         mem = AgentMemory("V1")
-        mem._wait_start = time.time() - 11.0  # waiting > 10s
+        mem._wait_start = time.time() - 11.0
         assert mem.is_stuck() is True
 
     def test_not_stuck_when_moving(self):
@@ -160,15 +152,10 @@ class TestAgentMemory:
         mem = AgentMemory("V1")
         mem.record_decision("x", {"action": "stop", "speed": 0.0, "reason": "red"})
         assert mem._wait_start is not None
-        # Now "resume"
         mem.record_decision("x", {"action": "go", "speed": 10.0, "reason": "green"})
         assert mem._wait_start is None
         assert mem._time_waiting >= 0
 
-
-# ══════════════════════════════════════════════════════════════
-#  CircuitBreaker tests
-# ══════════════════════════════════════════════════════════════
 
 class TestCircuitBreaker:
 
@@ -195,7 +182,6 @@ class TestCircuitBreaker:
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=0)
         cb.record_failure()
         assert cb.state != "closed"
-        # After cooldown (0s), should transition to half_open
         time.sleep(0.01)
         assert cb.state == "half_open"
         assert cb.allow_request() is True
@@ -211,14 +197,10 @@ class TestCircuitBreaker:
     def test_failure_in_half_open_reopens(self):
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=0.5)
         cb.record_failure()
-        # Should be OPEN now
         assert cb.allow_request() is False
-        # Wait for cooldown to transition to HALF_OPEN
         time.sleep(0.6)
         assert cb.state == "half_open"
         cb.record_failure()
-        # Should be OPEN again immediately after failed test call
-        # Check _state directly since cooldown hasn't elapsed yet
         assert cb._state == "open"
 
     def test_get_stats(self):
@@ -246,10 +228,10 @@ class TestCircuitBreaker:
 
     def test_trip_counter(self):
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=0.5)
-        cb.record_failure()  # trip 1
-        time.sleep(0.6)      # wait for cooldown to enter half_open
+        cb.record_failure()
+        time.sleep(0.6)
         assert cb.state == "half_open"
-        cb.record_failure()  # trip 2 (half_open -> open again)
+        cb.record_failure()
         stats = cb.get_stats()
         assert stats["total_circuit_trips"] == 2
 
@@ -257,8 +239,6 @@ class TestCircuitBreaker:
         cb = CircuitBreaker(failure_threshold=5, window_seconds=0.01)
         cb.record_failure()
         cb.record_failure()
-        time.sleep(0.02)  # wait for window to expire
-        cb.record_failure()  # this should evict old ones
-        # Should still be closed since old failures expired
+        time.sleep(0.02)
+        cb.record_failure()
         assert cb.state == "closed"
-

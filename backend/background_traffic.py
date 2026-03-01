@@ -1,10 +1,3 @@
-"""
-background_traffic.py — Manager pentru trafic ambient pe grila de intersectii.
-Genereaza masini cu trasee variate (drept, viraj stanga/dreapta) prin oras.
-Drumurile formeaza un patrat inchis — toate capetele sunt unite, nimic nu duce in gol.
-Masinile sunt persistente — nu dispar, cand ajung la marginea hartii fac stanga sau dreapta.
-Include semafoare pe unele intersectii si masini de urgenta ocazionale.
-"""
 
 import math
 import time
@@ -15,10 +8,8 @@ from typing import List, Tuple, Optional, Dict
 from agents import VehicleAgent
 from v2x_channel import channel
 from intersection_coordinator import IntersectionCoordinator
-#c
 logger = logging.getLogger("background_traffic")
 
-# ──────────────────────── Grid Configuration ────────────────────────
 GRID_COLS = 5
 GRID_ROWS = 5
 GRID_SPACING = 200.0
@@ -37,15 +28,13 @@ DEMO_INTERSECTION = min(INTERSECTIONS, key=lambda p: p[0] ** 2 + p[1] ** 2)
 
 LANE_OFFSET = 10.0
 
-# Background traffic settings
-NUM_BG_VEHICLES = 25          # fixed number of persistent vehicles
+NUM_BG_VEHICLES = 25
 BG_SPEED_MIN = 12.0
 BG_SPEED_MAX = 20.0
 EMERGENCY_CHANCE = 0.08
 POLICE_CHANCE = 0.06
 MIN_SPAWN_DISTANCE = 45.0
 
-# ──────────────────────── Traffic Lights on Grid ────────────────────────
 TRAFFIC_LIGHT_PHASE_DURATION = 12.0
 
 TRAFFIC_LIGHT_INTERSECTIONS = [
@@ -94,10 +83,7 @@ def get_grid_info() -> dict:
     }
 
 
-# ──────────────────────── Lane helpers ────────────────────────
-
 def _lane_xy(ix, iy, direction):
-    """Lane-offset position for European right-hand traffic."""
     d = direction % 360
     if d == 0:
         return (ix + LANE_OFFSET, iy)
@@ -111,124 +97,51 @@ def _lane_xy(ix, iy, direction):
 
 
 def _snap_to_lane(x, y, direction):
-    """Snap a position to the correct lane for the given direction.
-    This ensures vehicles stay exactly on their lane after a turn.
-    """
     d = direction % 360
-    # Find nearest intersection axis
     nearest_col = min(_ALL_COL_X, key=lambda cx: abs(cx - x))
     nearest_row = min(_ALL_ROW_Y, key=lambda ry: abs(ry - y))
-    if d == 0:    # heading north, lane = col + OFFSET
+    if d == 0:
         return (nearest_col + LANE_OFFSET, y)
-    if d == 180:  # heading south, lane = col - OFFSET
+    if d == 180:
         return (nearest_col - LANE_OFFSET, y)
-    if d == 90:   # heading east, lane = row - OFFSET
+    if d == 90:
         return (x, nearest_row - LANE_OFFSET)
-    if d == 270:  # heading west, lane = row + OFFSET
+    if d == 270:
         return (x, nearest_row + LANE_OFFSET)
     return (x, y)
 
 
-# ──────────────────────── Continuation Waypoints ────────────────────────
-# When a vehicle reaches the edge of the map and can't go forward,
-# it turns left or right and continues driving. No despawning.
-
 def generate_continuation_waypoints(x, y, current_direction):
-    """Generate new waypoints for a vehicle that reached the grid edge.
-    The vehicle turns left or right (randomly) onto a perpendicular road
-    and drives to the other edge. Returns (waypoints, new_direction).
-    """
     d = current_direction % 360
 
-    # Determine which edge we're at and pick perpendicular directions
-    if d == 0:    # was heading north, now at top edge
-        options = [90.0, 270.0]   # turn east or west
-    elif d == 180:  # was heading south, now at bottom edge
+    if d == 0:
         options = [90.0, 270.0]
-    elif d == 90:   # was heading east, now at right edge
-        options = [0.0, 180.0]    # turn north or south
-    elif d == 270:  # was heading west, now at left edge
+    elif d == 180:
+        options = [90.0, 270.0]
+    elif d == 90:
+        options = [0.0, 180.0]
+    elif d == 270:
         options = [0.0, 180.0]
     else:
         options = [0.0, 90.0, 180.0, 270.0]
 
     new_dir = random.choice(options)
 
-    # Find the nearest intersection to snap the turn onto
     nearest_col = min(_ALL_COL_X, key=lambda cx: abs(cx - x))
     nearest_row = min(_ALL_ROW_Y, key=lambda ry: abs(ry - y))
 
-    # Determine turn intersection based on where we are
-    if d in (0, 180):   # was on a column, turn onto a row
+    if d in (0, 180):
         turn_ix = nearest_col
-        # Pick the row we're closest to (should be at edge)
         turn_iy = nearest_row
-    else:              # was on a row, turn onto a column
+    else:
         turn_ix = nearest_col
         turn_iy = nearest_row
 
     wps = []
 
-    # Add turn waypoint (snap to correct lane for new direction)
     turn_wp = _lane_xy(turn_ix, turn_iy, new_dir)
     wps.append(turn_wp)
 
-    # Add waypoints along the new direction until the opposite edge
-    if new_dir == 0.0:    # heading north
-        lane_x = turn_ix + LANE_OFFSET
-        ys = sorted([y2 for x2, y2 in INTERSECTIONS if x2 == turn_ix and y2 > turn_iy])
-        for iy in ys:
-            wps.append((lane_x, iy))
-    elif new_dir == 180.0:  # heading south
-        lane_x = turn_ix - LANE_OFFSET
-        ys = sorted([y2 for x2, y2 in INTERSECTIONS if x2 == turn_ix and y2 < turn_iy], reverse=True)
-        for iy in ys:
-            wps.append((lane_x, iy))
-    elif new_dir == 90.0:   # heading east
-        lane_y = turn_iy - LANE_OFFSET
-        xs = sorted([x2 for x2, y2 in INTERSECTIONS if y2 == turn_iy and x2 > turn_ix])
-        for ix in xs:
-            wps.append((ix, lane_y))
-    elif new_dir == 270.0:  # heading west
-        lane_y = turn_iy + LANE_OFFSET
-        xs = sorted([x2 for x2, y2 in INTERSECTIONS if y2 == turn_iy and x2 < turn_ix], reverse=True)
-        for ix in xs:
-            wps.append((ix, lane_y))
-
-    return wps, new_dir
-
-
-def generate_random_turn_at_intersection(x, y, current_direction):
-    """At any intersection, optionally generate turn waypoints.
-    Returns (waypoints, new_direction) or (None, None) if no turn.
-    Called by the vehicle at each intersection to decide: straight, left, or right.
-    """
-    d = current_direction % 360
-
-    # Find nearest intersection
-    nearest_col = min(_ALL_COL_X, key=lambda cx: abs(cx - x))
-    nearest_row = min(_ALL_ROW_Y, key=lambda ry: abs(ry - y))
-
-    # Only turn if we're actually close to an intersection
-    if abs(x - nearest_col) > 20 and abs(y - nearest_row) > 20:
-        return None, None
-
-    # Determine available turn directions (perpendicular to current)
-    if d in (0.0, 180.0):   # on NS road, can turn EW
-        options = [90.0, 270.0]
-    else:                     # on EW road, can turn NS
-        options = [0.0, 180.0]
-
-    new_dir = random.choice(options)
-    turn_ix = nearest_col
-    turn_iy = nearest_row
-
-    wps = []
-    # Turn waypoint
-    turn_wp = _lane_xy(turn_ix, turn_iy, new_dir)
-    wps.append(turn_wp)
-
-    # Continue straight along new direction to the edge
     if new_dir == 0.0:
         lane_x = turn_ix + LANE_OFFSET
         ys = sorted([y2 for x2, y2 in INTERSECTIONS if x2 == turn_ix and y2 > turn_iy])
@@ -253,10 +166,53 @@ def generate_random_turn_at_intersection(x, y, current_direction):
     return wps, new_dir
 
 
-# ──────────────────────── Initial Route Building ────────────────────────
+def generate_random_turn_at_intersection(x, y, current_direction):
+    d = current_direction % 360
+
+    nearest_col = min(_ALL_COL_X, key=lambda cx: abs(cx - x))
+    nearest_row = min(_ALL_ROW_Y, key=lambda ry: abs(ry - y))
+
+    if abs(x - nearest_col) > 20 and abs(y - nearest_row) > 20:
+        return None, None
+
+    if d in (0.0, 180.0):
+        options = [90.0, 270.0]
+    else:
+        options = [0.0, 180.0]
+
+    new_dir = random.choice(options)
+    turn_ix = nearest_col
+    turn_iy = nearest_row
+
+    wps = []
+    turn_wp = _lane_xy(turn_ix, turn_iy, new_dir)
+    wps.append(turn_wp)
+
+    if new_dir == 0.0:
+        lane_x = turn_ix + LANE_OFFSET
+        ys = sorted([y2 for x2, y2 in INTERSECTIONS if x2 == turn_ix and y2 > turn_iy])
+        for iy in ys:
+            wps.append((lane_x, iy))
+    elif new_dir == 180.0:
+        lane_x = turn_ix - LANE_OFFSET
+        ys = sorted([y2 for x2, y2 in INTERSECTIONS if x2 == turn_ix and y2 < turn_iy], reverse=True)
+        for iy in ys:
+            wps.append((lane_x, iy))
+    elif new_dir == 90.0:
+        lane_y = turn_iy - LANE_OFFSET
+        xs = sorted([x2 for x2, y2 in INTERSECTIONS if y2 == turn_iy and x2 > turn_ix])
+        for ix in xs:
+            wps.append((ix, lane_y))
+    elif new_dir == 270.0:
+        lane_y = turn_iy + LANE_OFFSET
+        xs = sorted([x2 for x2, y2 in INTERSECTIONS if y2 == turn_iy and x2 < turn_ix], reverse=True)
+        for ix in xs:
+            wps.append((ix, lane_y))
+
+    return wps, new_dir
+
 
 def _build_initial_route_from_intersection(ix, iy, direction):
-    """Build a route starting from an intersection going in direction to the edge."""
     wps = []
     start_wp = _lane_xy(ix, iy, direction)
     wps.append(start_wp)
@@ -285,7 +241,6 @@ def _build_initial_route_from_intersection(ix, iy, direction):
     return wps
 
 
-# Keep _ALL_ROUTE_KEYS and _build_route for drunk driver spawning
 _ALL_ROUTE_KEYS = []
 for cx in _ALL_COL_X:
     _ALL_ROUTE_KEYS.append(("straight", "col", cx, 180.0))
@@ -296,7 +251,6 @@ for ry in _ALL_ROW_Y:
 
 
 def _build_straight_route(axis, coord, direction):
-    """Straight route through an entire column or row, edge to edge."""
     if axis == "col":
         col_x = coord
         if direction == 180.0:
@@ -336,8 +290,6 @@ def _build_route(route_key) -> Tuple[List[Tuple[float, float]], float]:
     return [], 0.0
 
 
-# ──────────────────────── Background Traffic Manager ────────────────────────
-
 class BackgroundTrafficManager:
     def __init__(self):
         self._vehicles: Dict[str, VehicleAgent] = {}
@@ -345,14 +297,12 @@ class BackgroundTrafficManager:
         self._thread: Optional[threading.Thread] = None
         self._counter = 0
         self._lock = threading.Lock()
-        # Use IntersectionCoordinator for ALL intersections with green-wave sync
         self._coordinator = IntersectionCoordinator(INTERSECTIONS, GRID_SPACING)
-        # Keep legacy GridTrafficLight list for backward compat on specific intersections
         self._traffic_lights: List[GridTrafficLight] = [
             GridTrafficLight(x, y) for x, y in TRAFFIC_LIGHT_INTERSECTIONS
         ]
         self._tl_thread: Optional[threading.Thread] = None
-        self._spawned = False  # only spawn once
+        self._spawned = False
 
     @property
     def active(self) -> bool:
@@ -378,14 +328,11 @@ class BackgroundTrafficManager:
         if self._running:
             return
         self._running = True
-        # Start intersection coordinator (green-wave sync across ALL intersections)
         self._coordinator.start()
-        # Spawn all vehicles at once on first start
         if not self._spawned:
             self._spawn_all_vehicles()
             self._spawned = True
         else:
-            # Re-start existing vehicles that were stopped
             with self._lock:
                 for v in self._vehicles.values():
                     if not v._running:
@@ -413,7 +360,6 @@ class BackgroundTrafficManager:
             time.sleep(dt)
 
     def _is_spawn_blocked(self, start_x: float, start_y: float) -> bool:
-        """Check if another vehicle is too close to the spawn point."""
         with self._lock:
             for v in self._vehicles.values():
                 d = math.sqrt((v.x - start_x) ** 2 + (v.y - start_y) ** 2)
@@ -422,11 +368,8 @@ class BackgroundTrafficManager:
         return False
 
     def _spawn_all_vehicles(self):
-        """Spawn NUM_BG_VEHICLES persistent vehicles spread across the grid."""
-        # Collect all valid spawn positions: every intersection + direction combo
         spawn_options = []
         for ix, iy in INTERSECTIONS:
-            # Skip demo center
             if abs(ix) < 1 and abs(iy) < 1:
                 continue
             for d in [0.0, 90.0, 180.0, 270.0]:
@@ -454,9 +397,7 @@ class BackgroundTrafficManager:
             else:
                 agent_id = f"BG_{self._counter:03d}"
 
-            # Build initial waypoints from this intersection to the edge
             initial_wps = _build_initial_route_from_intersection(ix, iy, direction)
-            # Remove the first waypoint (it's the spawn position itself)
             route_wps = initial_wps[1:] if len(initial_wps) > 1 else []
 
             vehicle = VehicleAgent(
@@ -470,7 +411,7 @@ class BackgroundTrafficManager:
                 is_emergency=is_emergency,
                 is_police=is_police,
                 waypoints=route_wps,
-                persistent=True,   # never despawn
+                persistent=True,
             )
 
             with self._lock:

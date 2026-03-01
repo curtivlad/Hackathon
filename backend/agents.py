@@ -1,14 +1,3 @@
-"""
-agents.py — VehicleAgent cu AI LLM brain + MEMORIE PROPRIE,
-            perceptie V2X (broadcast alerts), oprire corecta la semafor,
-            reluare la verde, si circulatie pe banda din dreapta (Europa).
-
-Cerinte indeplinite:
-- Memorie proprie per agent (prin LLMBrain.memory)
-- Perceptie prin mesaje V2X (broadcast alerts + stari alti agenti)
-- Decizii autonome non-deterministe (memoria + V2X variaza la fiecare pas)
-- Nu executa instructiuni fixe identice (fallback adaptiv bazat pe memorie)
-"""
 
 import math
 import time
@@ -31,14 +20,13 @@ DECELERATION = 10.0
 UPDATE_INTERVAL = 0.05
 STOP_LINE = 35.0
 
-# Drunk driver erratic behavior parameters
-DRUNK_SWERVE_MAX = 12.0        # max swerve angle in degrees
-DRUNK_SWERVE_PERIOD = 1.5      # seconds per swerve oscillation
-DRUNK_RANDOM_STOP_CHANCE = 0.005   # per tick chance to randomly stop
-DRUNK_RANDOM_ACCEL_CHANCE = 0.02   # per tick chance to randomly accelerate
-DRUNK_IGNORE_RED_CHANCE = 0.7      # chance to ignore red light
-DRUNK_RANDOM_BRAKE_CHANCE = 0.01   # per tick chance to randomly brake hard
-DRUNK_SPEED_VARIANCE = 5.0        # random speed variation
+DRUNK_SWERVE_MAX = 12.0
+DRUNK_SWERVE_PERIOD = 1.5
+DRUNK_RANDOM_STOP_CHANCE = 0.005
+DRUNK_RANDOM_ACCEL_CHANCE = 0.02
+DRUNK_IGNORE_RED_CHANCE = 0.7
+DRUNK_RANDOM_BRAKE_CHANCE = 0.01
+DRUNK_SPEED_VARIANCE = 5.0
 
 
 class VehicleAgent:
@@ -55,10 +43,10 @@ class VehicleAgent:
         self.speed = initial_speed
         self.target_speed = target_speed
         self.intention = intention
-        self.is_emergency = is_emergency or is_police  # police is also emergency
+        self.is_emergency = is_emergency or is_police
         self.is_police = is_police
         self.is_drunk = is_drunk
-        self.persistent = persistent   # never despawn — turn at edges
+        self.persistent = persistent
         if self.is_emergency:
             self.target_speed = MAX_SPEED
         self.decision = "go"
@@ -70,14 +58,11 @@ class VehicleAgent:
         self._passed_intersection = False
         self._entered_intersection = False
 
-        # Waypoint-based routing for background traffic
         self._waypoints = list(waypoints) if waypoints else None
         self._is_background = waypoints is not None
 
-        # LLM Brain cu MEMORIE PROPRIE — fiecare masina are propriul "creier" AI
         self._llm_brain = LLMBrain(agent_id)
 
-        # Fallback memory (pentru cand LLM nu e disponibil)
         self._fallback_history = []
         self._fallback_consecutive = 0
         self._fallback_last_action = None
@@ -87,19 +72,16 @@ class VehicleAgent:
         self._drunk_erratic_end = 0.0
         self._drunk_erratic_speed = 0.0
 
-        # Pull-over state — when an ambulance is behind, pull to the side
-        self._pulling_over = False          # currently pulling over
-        self._pullover_offset = 0.0         # how far we've shifted laterally
-        self._pullover_original_x = None    # original lane x before pull-over
-        self._pullover_original_y = None    # original lane y before pull-over
-        self._pullover_target_offset = 8.0  # how far to shift to the side (units)
+        self._pulling_over = False
+        self._pullover_offset = 0.0
+        self._pullover_original_x = None
+        self._pullover_original_y = None
+        self._pullover_target_offset = 8.0
 
-        # Police arrest state — when police catches a drunk driver
-        self._arrested = False              # drunk driver has been arrested
-        self._arrested_timer = 0.0          # countdown before removal
-        self._chasing_drunk_id = None       # police: ID of drunk being chased
+        self._arrested = False
+        self._arrested_timer = 0.0
+        self._chasing_drunk_id = None
 
-    # ──────────────────────── Helpers ────────────────────────
 
     def _moves_on_y(self):
         rad = math.radians(self.direction)
@@ -110,7 +92,6 @@ class VehicleAgent:
         return "NS" if abs(math.cos(rad)) >= abs(math.sin(rad)) else "EW"
 
     def _distance_to_stop_line(self):
-        """Distanta pana la linia de stop pe axa de miscare."""
         if self._moves_on_y():
             return max(0.0, abs(self.y) - STOP_LINE)
         else:
@@ -122,19 +103,15 @@ class VehicleAgent:
         else:
             return abs(self.x) >= STOP_LINE
 
-    # ──────────────────────── Emergency Vehicle Pull-Over ────────────────────────
 
-    PULLOVER_DETECT_RANGE = 80.0   # how far behind to detect ambulance
-    PULLOVER_LATERAL_SHIFT = 14.0  # how far to shift to the side (road edge ~20 from lane)
-    PULLOVER_PERP_TOL = 14.0       # lateral tolerance for "same lane" (behind)
-    PULLOVER_DIR_TOL = 50.0        # heading tolerance
+    PULLOVER_DETECT_RANGE = 80.0
+    PULLOVER_LATERAL_SHIFT = 14.0
+    PULLOVER_PERP_TOL = 14.0
+    PULLOVER_DIR_TOL = 50.0
 
     def _detect_emergency_behind(self):
-        """Check if an emergency vehicle is behind us on the same lane, approaching.
-        Returns the emergency vehicle info dict if found, else None.
-        """
         if self.is_emergency or self.is_drunk:
-            return None  # emergencies don't pull over; drunk drivers ignore
+            return None
 
         nearby = self._get_nearby_vehicles_info()
         rad = math.radians(self.direction)
@@ -145,29 +122,24 @@ class VehicleAgent:
             if not o.get("is_emergency"):
                 continue
 
-            # Vector from us to the other vehicle
             rel_x = o["x"] - self.x
             rel_y = o["y"] - self.y
 
-            # Project onto our forward axis: negative = behind us
             proj = rel_x * fwd_x + rel_y * fwd_y
             if proj > 5.0:
-                continue  # ambulance is ahead, not behind — no need to pull over
+                continue
 
             if abs(proj) > self.PULLOVER_DETECT_RANGE:
-                continue  # too far
+                continue
 
-            # Perpendicular distance — must be roughly same lane
             perp = abs(rel_x * (-fwd_y) + rel_y * fwd_x)
             if perp > self.PULLOVER_PERP_TOL:
-                continue  # different road entirely
+                continue
 
-            # Heading similarity — ambulance going the same direction
             dir_diff = abs(((o["direction"] - self.direction + 180) % 360) - 180)
             if dir_diff > self.PULLOVER_DIR_TOL:
-                continue  # not heading the same way
+                continue
 
-            # Ambulance is behind us on the same lane!
             return o
 
         return None
@@ -205,13 +177,6 @@ class VehicleAgent:
         return True
 
     def _apply_pullover(self):
-        """Shift the vehicle laterally to the right side of the road and stop.
-        Called each tick while pulling over. Returns True if actively pulling over.
-
-        Special case: if the vehicle is inside an intersection when it detects
-        the ambulance, it accelerates through the intersection first and only
-        pulls over after exiting.
-        """
         emergency = self._detect_emergency_behind()
 
         if emergency is not None:
@@ -238,7 +203,6 @@ class VehicleAgent:
                 self.recommended_speed = min(MAX_SPEED, self.target_speed * 1.4)
                 return True
 
-            # ── Outside intersection: actually pull over ──
             if not self._pulling_over:
                 self._pulling_over = True
                 self._pullover_offset = 0.0
@@ -249,21 +213,18 @@ class VehicleAgent:
                     f"Pulling over for emergency vehicle {emergency['id']}"
                 )
 
-            # Save original position when we first start the lateral shift
             if self._pullover_original_x is None:
                 self._pullover_original_x = self.x
                 self._pullover_original_y = self.y
 
-            # Shift laterally to the right (toward the road edge)
             if self._pullover_offset < self.PULLOVER_LATERAL_SHIFT:
-                shift_speed = 15.0 * UPDATE_INTERVAL  # lateral shift speed
+                shift_speed = 15.0 * UPDATE_INTERVAL
                 actual_shift = min(
                     shift_speed,
                     self.PULLOVER_LATERAL_SHIFT - self._pullover_offset
                 )
                 self._pullover_offset += actual_shift
 
-                # Right side = heading + 90° (clockwise)
                 right_rad = math.radians(self.direction + 90.0)
                 right_x = math.sin(right_rad)
                 right_y = math.cos(right_rad)
@@ -271,7 +232,6 @@ class VehicleAgent:
                 self.x += right_x * actual_shift
                 self.y += right_y * actual_shift
 
-            # Stop the vehicle
             self.decision = "stop"
             self.reason = "pullover_emergency"
             self.recommended_speed = 0.0
@@ -279,14 +239,11 @@ class VehicleAgent:
             return True
 
         elif self._pulling_over:
-            # Ambulance has passed — return to original lane
             if self._pullover_offset > 0.5:
-                # Shift back to the left
                 shift_speed = 10.0 * UPDATE_INTERVAL
                 actual_shift = min(shift_speed, self._pullover_offset)
                 self._pullover_offset -= actual_shift
 
-                # Left = heading - 90° (counterclockwise)
                 left_rad = math.radians(self.direction - 90.0)
                 left_x = math.sin(left_rad)
                 left_y = math.cos(left_rad)
@@ -299,7 +256,6 @@ class VehicleAgent:
                 self.recommended_speed = 0.0
                 return True
             else:
-                # Fully returned — resume normal driving
                 self._pulling_over = False
                 self._pullover_offset = 0.0
                 self._pullover_original_x = None
@@ -309,16 +265,12 @@ class VehicleAgent:
 
         return False
 
-    # ──────────────────────── Police Arrest Logic ────────────────────────
 
-    POLICE_DETECT_RANGE = 120.0   # how far ahead police can detect drunk drivers
-    POLICE_ARREST_RANGE = 18.0    # distance at which police arrests the drunk
-    ARREST_REMOVAL_DELAY = 3.0    # seconds before removing arrested drunk
+    POLICE_DETECT_RANGE = 120.0
+    POLICE_ARREST_RANGE = 18.0
+    ARREST_REMOVAL_DELAY = 3.0
 
     def _detect_drunk_ahead(self):
-        """Police vehicle: detect a drunk driver ahead on the same road.
-        Returns the drunk vehicle info dict if found, else None.
-        """
         if not self.is_police:
             return None
 
@@ -334,23 +286,21 @@ class VehicleAgent:
             if not o.get("is_drunk"):
                 continue
             if o.get("arrested"):
-                continue  # already arrested, skip
+                continue
 
             rel_x = o["x"] - self.x
             rel_y = o["y"] - self.y
 
-            # Project onto forward axis — must be ahead
             proj = rel_x * fwd_x + rel_y * fwd_y
             if proj < 0:
-                continue  # behind us
+                continue
 
             if proj > self.POLICE_DETECT_RANGE:
-                continue  # too far
+                continue
 
-            # Perpendicular distance — roughly same road
             perp = abs(rel_x * (-fwd_y) + rel_y * fwd_x)
             if perp > 20.0:
-                continue  # different road
+                continue
 
             if proj < best_dist:
                 best_dist = proj
@@ -359,9 +309,6 @@ class VehicleAgent:
         return best
 
     def _police_chase_drunk(self):
-        """Police vehicle: chase and arrest drunk drivers ahead.
-        Returns True if actively chasing/arresting.
-        """
         if not self.is_police:
             return False
 
@@ -372,15 +319,12 @@ class VehicleAgent:
             dist = drunk["dist"]
 
             if dist < self.POLICE_ARREST_RANGE:
-                # Close enough — arrest the drunk!
                 self._broadcast_v2x_alert(
                     "police_arrest",
                     f"Police {self.agent_id} arresting drunk driver {drunk['id']}"
                 )
                 logger.info(f"[POLICE] {self.agent_id} arrested {drunk['id']}")
 
-                # Signal the drunk driver to be arrested
-                # Find the drunk vehicle in simulation and mark it
                 from simulation import simulation
                 for v in simulation.vehicles:
                     if v.agent_id == drunk["id"] and v.is_drunk and not v._arrested:
@@ -392,26 +336,22 @@ class VehicleAgent:
                         logger.info(f"[POLICE] {drunk['id']} marked for removal in {self.ARREST_REMOVAL_DELAY}s")
                         break
 
-                # Police also stops briefly
                 self.decision = "stop"
                 self.reason = "arresting_drunk"
                 self.recommended_speed = 0.0
                 return True
             else:
-                # Chase — speed up toward the drunk
                 self.decision = "go"
                 self.reason = "chasing_drunk"
                 self.recommended_speed = min(MAX_SPEED, self.target_speed * 1.5)
                 return True
 
         elif self._chasing_drunk_id:
-            # Drunk was removed or we lost sight — resume normal patrol
             self._chasing_drunk_id = None
 
         return False
 
     def _process_arrest(self):
-        """Drunk driver: process arrest countdown. Returns True if arrested and should be removed."""
         if not self._arrested:
             return False
 
@@ -422,26 +362,22 @@ class VehicleAgent:
 
         self._arrested_timer -= UPDATE_INTERVAL
         if self._arrested_timer <= 0:
-            # Time to remove from simulation
             logger.info(f"[POLICE] Removing arrested drunk driver {self.agent_id}")
             return True
 
         return False
 
-    # ──────────────────────── Traffic Light Detection ────────────────────────
 
     def _is_red_light(self):
-        """Returneaza True daca semaforul e rosu, False daca e verde, None daca nu exista semafor."""
         all_states = channel.get_all_states()
         for msg in all_states.values():
             if msg.agent_type == "infrastructure":
                 green_axis = "NS" if "NS" in msg.intention else "EW"
                 my_axis = self._get_movement_axis()
                 return my_axis != green_axis
-        return None  # nu exista semafor
+        return None
 
     def _get_traffic_light_str(self):
-        """Returneaza 'green', 'red', sau None."""
         red = self._is_red_light()
         if red is True:
             return "red"
@@ -449,10 +385,8 @@ class VehicleAgent:
             return "green"
         return None
 
-    # ──────────────────────── V2X Broadcast ────────────────────────
 
     def _broadcast_v2x_alert(self, alert_type: str, message: str, target_id=None):
-        """Trimite o alerta V2X catre ceilalti agenti."""
         alert = V2XBroadcast(
             from_id=self.agent_id,
             alert_type=alert_type,
@@ -462,25 +396,20 @@ class VehicleAgent:
         channel.broadcast(alert)
 
     def _get_v2x_broadcasts_text(self) -> str:
-        """Obtine alertele V2X primite si le formateaza ca text pentru prompt."""
         alerts = channel.get_broadcasts_for(self.agent_id, last_seconds=5.0)
         if not alerts:
             return ""
         lines = ["V2X BROADCAST MESSAGES RECEIVED:"]
-        for a in alerts[-5:]:  # ultimele 5
+        for a in alerts[-5:]:
             lines.append(f"  - From {a.from_id}: [{a.alert_type}] {a.message}")
 
-        # Inregistreaza in memoria agentului
         for a in alerts[-3:]:
             self._llm_brain.memory.record_v2x_alert(a.from_id, a.alert_type, a.message)
 
         return "\n".join(lines)
 
-    # ──────────────────────── Nearby vehicles for LLM ────────────────────────
 
     def _get_nearby_vehicles_info(self):
-        """Construieste lista cu informatii despre vehiculele din jur pentru LLM.
-        Include metadata suplimentara: ahead_in_my_lane, gap (distanta frontala)."""
         others = channel.get_other_agents(self.agent_id)
         my_msg = self._build_message()
         rad = math.radians(self.direction)
@@ -491,16 +420,15 @@ class VehicleAgent:
             if msg.agent_type != "vehicle":
                 continue
             dist = distance(self.x, self.y, msg.x, msg.y)
-            if dist > 200:  # prea departe, nu conteaza
+            if dist > 200:
                 continue
             ttc = compute_ttc(my_msg, msg)
             ttc_str = f"{ttc:.1f}s" if ttc < 999 else "inf"
 
-            # ── Detect if vehicle is directly ahead in the same lane ──
             rel_x = msg.x - self.x
             rel_y = msg.y - self.y
-            proj = rel_x * fwd_x + rel_y * fwd_y   # forward distance
-            perp = abs(rel_x * (-fwd_y) + rel_y * fwd_x)  # lateral offset
+            proj = rel_x * fwd_x + rel_y * fwd_y
+            perp = abs(rel_x * (-fwd_y) + rel_y * fwd_x)
             dir_diff = abs(((msg.direction - self.direction + 180) % 360) - 180)
             is_ahead = proj > 0 and proj < 45 and perp < 8 and dir_diff < 35
 
@@ -516,28 +444,15 @@ class VehicleAgent:
                 "arrested": msg.arrested,
                 "dist": dist,
                 "ttc": ttc_str,
-                "decision": msg.decision,  # ce decizie a luat celalalt agent
+                "decision": msg.decision,
                 "ahead_in_my_lane": is_ahead,
                 "gap": round(proj, 1) if is_ahead else None,
             }
             result.append(entry)
         return result
 
-    # ──────────────────────── Following-distance rear-collision avoidance ────────────────────────
 
     def _compute_following_speed(self):
-        """
-        Compute safe following speed when a vehicle is ahead in the same lane.
-        Works for ALL vehicles (emergency, normal, background).
-        Returns the maximum safe speed; the caller should cap recommended_speed to this.
-
-        Logic:
-        - Detect vehicles ahead in the same lane (within ±10 units perp, ±45° heading).
-        - If gap <= MIN_FOLLOW_GAP (5m): match leader speed exactly (or 0 if stopped).
-        - If gap <= 2x MIN_FOLLOW_GAP: blend towards leader speed with proportional approach.
-        - Otherwise: physics-based safe speed v = sqrt(v_leader² + 2·decel·(gap - margin)).
-        - Always returns the MINIMUM over all vehicles ahead.
-        """
         if self.is_emergency:
             return MAX_SPEED
 
@@ -546,11 +461,11 @@ class VehicleAgent:
         dx_fwd = math.sin(rad)
         dy_fwd = math.cos(rad)
 
-        MIN_FOLLOW_GAP = 15.0   # absolute minimum gap (meters)
-        COMFORT_GAP = 20.0      # comfortable following gap
-        DETECT_RANGE = 45.0     # how far ahead to look
-        PERP_TOLERANCE = 8.0    # lateral tolerance for same-lane
-        DIR_TOLERANCE = 35.0    # heading tolerance (degrees)
+        MIN_FOLLOW_GAP = 15.0
+        COMFORT_GAP = 20.0
+        DETECT_RANGE = 45.0
+        PERP_TOLERANCE = 8.0
+        DIR_TOLERANCE = 35.0
 
         min_safe_speed = MAX_SPEED
 
@@ -558,20 +473,17 @@ class VehicleAgent:
             rel_x = o["x"] - self.x
             rel_y = o["y"] - self.y
 
-            # Project onto forward direction → how far ahead
             proj = rel_x * dx_fwd + rel_y * dy_fwd
             if proj < 0 or proj > DETECT_RANGE:
-                continue  # behind us or too far ahead
+                continue
 
-            # Perpendicular distance → same lane check
             perp = abs(rel_x * (-dy_fwd) + rel_y * dx_fwd)
             if perp > PERP_TOLERANCE:
-                continue  # different lane
+                continue
 
-            # Heading similarity → same direction check
             dir_diff = abs(((o["direction"] - self.direction + 180) % 360) - 180)
             if dir_diff > DIR_TOLERANCE:
-                continue  # facing different direction
+                continue
 
             if self.is_emergency:
                 other_decision = o.get("decision", "")
@@ -584,25 +496,18 @@ class VehicleAgent:
                 if is_yielding:
                     continue
 
-            # ── Vehicle is ahead, same lane, same direction ──
             gap = proj
             leader_speed = o["speed"]
 
             if gap <= MIN_FOLLOW_GAP:
-                # Critically close → match leader speed or stop
                 safe_speed = min(leader_speed, max(leader_speed * 0.8, 0.0))
             elif gap <= COMFORT_GAP:
-                # Close range → gradually reduce to leader speed
-                # Linear interpolation: at MIN_FOLLOW_GAP → leader_speed,
-                #                       at COMFORT_GAP → target_speed
-                ratio = (gap - MIN_FOLLOW_GAP) / (COMFORT_GAP - MIN_FOLLOW_GAP)  # 0→1
+                ratio = (gap - MIN_FOLLOW_GAP) / (COMFORT_GAP - MIN_FOLLOW_GAP)
                 safe_speed = leader_speed + ratio * max(0, self.target_speed - leader_speed)
-                # But never exceed a physics-safe limit
                 braking_dist = max(0, gap - MIN_FOLLOW_GAP)
                 v_physics = math.sqrt(max(0, leader_speed ** 2 + 2 * DECELERATION * braking_dist))
                 safe_speed = min(safe_speed, v_physics)
             else:
-                # Far range → physics-based: can we stop in time if leader brakes?
                 braking_dist = max(0, gap - MIN_FOLLOW_GAP)
                 safe_speed = math.sqrt(max(0, leader_speed ** 2 + 2 * DECELERATION * braking_dist))
 
@@ -611,29 +516,19 @@ class VehicleAgent:
 
         return min_safe_speed
 
-    # ──────────────────────── Decision Making (LLM + Adaptive Fallback) ────────────────────────
 
     def _make_decision(self):
-        """
-        Logica de decizie:
-        1. Daca e sofer beat — comportament erratic (ignora reguli)
-        2. Incearca LLM (daca e activat si API key valid) — include memorie + V2X
-        3. Fallback ADAPTIV bazat pe memorie daca LLM nu e disponibil
-        """
         others = channel.get_other_agents(self.agent_id)
 
-        # Compute risk
         self.risk_level = compute_risk_for_agent(
             channel.get_agent_state(self.agent_id) or self._build_message(),
             others
         )
 
-        # Broadcast V2X alerts based on current state
         self._send_situational_v2x_alerts()
 
-        # ── Pull over for emergency vehicle behind us ──
         if self._apply_pullover():
-            return  # pulling over or returning to lane — skip normal logic
+            return
 
         if self.is_emergency:
             self.decision = "go"
@@ -643,12 +538,10 @@ class VehicleAgent:
             self._fallback_last_action = None
             return
 
-        # ── Drunk driver: erratic behavior ──
         if self.is_drunk:
             self._make_decision_drunk()
             return
 
-        # ── Try LLM first ──
         if LLM_ENABLED:
             traffic_light = self._get_traffic_light_str()
             nearby = self._get_nearby_vehicles_info()
@@ -674,11 +567,9 @@ class VehicleAgent:
                 self.reason = llm_result["reason"]
                 self.recommended_speed = llm_result["speed"]
 
-                # LLM a decis — resetam contorul fallback (nu mai suntem in fallback)
                 self._fallback_consecutive = 0
                 self._fallback_last_action = None
 
-                # Safety overrides — LLM nu poate trece pe rosu
                 if not self.is_emergency and not self._entered_intersection:
                     if traffic_light == "red":
                         self.decision = "stop"
@@ -691,8 +582,6 @@ class VehicleAgent:
                                 max(1.5, self.target_speed * (dist_to_stop / 20.0))
                             )
 
-                # ── Safety override: following distance ──
-                # Even if LLM says "go", cap speed to safe following distance
                 following_cap = self._compute_following_speed()
                 if following_cap < self.recommended_speed:
                     self.recommended_speed = following_cap
@@ -704,47 +593,39 @@ class VehicleAgent:
                         if "follow" not in self.reason:
                             self.reason = "following_too_close"
 
-                # Daca e deja in intersectie, nu te opri
                 if self._entered_intersection:
                     self.decision = "go"
                     self.recommended_speed = max(self.recommended_speed, self.target_speed * 0.5)
 
                 return
 
-        # ── Fallback: reguli ADAPTIVE (nu fixe) ──
         self._make_decision_adaptive_fallback()
 
     def _send_situational_v2x_alerts(self):
-        """Trimite alerte V2X in functie de situatia curenta."""
-        # Emergency broadcast
         if self.is_emergency:
             self._broadcast_v2x_alert(
                 "emergency",
                 f"Emergency vehicle approaching at speed {self.speed:.0f}m/s heading {self.direction}°"
             )
 
-        # Drunk driver broadcast — warn others about erratic behavior
         if self.is_drunk:
             self._broadcast_v2x_alert(
                 "erratic_driving",
                 f"DRUNK DRIVER! Erratic vehicle at ({self.x:.0f},{self.y:.0f}) speed {self.speed:.0f}m/s heading {self.direction:.0f}°"
             )
 
-        # Braking alert
         if self.decision in ("brake", "stop") and self.speed > 2.0:
             self._broadcast_v2x_alert(
                 "braking",
                 f"Braking hard at ({self.x:.0f},{self.y:.0f}), speed dropping"
             )
 
-        # Entering intersection alert
         if self._entered_intersection and self.speed > 0.5:
             self._broadcast_v2x_alert(
                 "entering_intersection",
                 f"Inside intersection heading {self.direction}° at {self.speed:.0f}m/s"
             )
 
-        # Near-miss warning — warn others when risk is high
         if self.risk_level in ("high", "collision"):
             self._broadcast_v2x_alert(
                 "near_miss",
@@ -752,72 +633,51 @@ class VehicleAgent:
             )
 
     def _make_decision_drunk(self):
-        """
-        Comportament ERRATIC — sofer beat.
-        Ignora semafoare, accelereaza/franeaza aleator, face swerve.
-        """
-        # Swerve sinusoidal — oscilatie de directie
         t = time.time()
         swerve_angle = DRUNK_SWERVE_MAX * math.sin(2 * math.pi * t / DRUNK_SWERVE_PERIOD)
-        # Add some random jitter
         swerve_angle += random.uniform(-3, 3)
 
-        # Apply swerve to direction (but remember original for waypoint nav)
         if not hasattr(self, '_drunk_base_direction'):
             self._drunk_base_direction = self.direction
-        # Slowly drift the base direction randomly
         self._drunk_base_direction += random.uniform(-0.5, 0.5)
         self.direction = (self._drunk_base_direction + swerve_angle) % 360
 
-        # Random erratic actions
         roll = random.random()
 
         if roll < DRUNK_RANDOM_STOP_CHANCE:
-            # Random stop for no reason
             self.decision = "stop"
             self.reason = "drunk_random_stop"
             self.recommended_speed = 0.0
             logger.info(f"[{self.agent_id}] DRUNK: stopped randomly!")
         elif roll < DRUNK_RANDOM_STOP_CHANCE + DRUNK_RANDOM_BRAKE_CHANCE:
-            # Random hard brake
             self.decision = "brake"
             self.reason = "drunk_random_brake"
             self.recommended_speed = max(0.0, self.speed - random.uniform(3, 6))
             logger.info(f"[{self.agent_id}] DRUNK: braking randomly!")
         elif roll < DRUNK_RANDOM_STOP_CHANCE + DRUNK_RANDOM_BRAKE_CHANCE + DRUNK_RANDOM_ACCEL_CHANCE:
-            # Random acceleration burst
             self.decision = "go"
             self.reason = "drunk_acceleration"
             self.recommended_speed = min(MAX_SPEED, self.target_speed + random.uniform(2, DRUNK_SPEED_VARIANCE))
             logger.info(f"[{self.agent_id}] DRUNK: accelerating erratically!")
         else:
-            # "Normal" drunk driving — slightly erratic speed
             self.decision = "go"
             self.reason = "drunk_driving"
             self.recommended_speed = self.target_speed + random.uniform(-2, 3)
             self.recommended_speed = max(2.0, min(MAX_SPEED, self.recommended_speed))
 
-        # Ignore red lights most of the time
         traffic_light = self._get_traffic_light_str()
         if traffic_light == "red" and not self._entered_intersection:
             if random.random() < DRUNK_IGNORE_RED_CHANCE:
-                # Drunk driver IGNORES red light
                 self.decision = "go"
                 self.reason = "drunk_ignores_red"
                 self.recommended_speed = max(self.recommended_speed, self.target_speed * 0.8)
                 logger.warning(f"[{self.agent_id}] DRUNK: IGNORING RED LIGHT!")
-            # else: occasionally they do stop at red (30% chance)
 
-        # If in intersection, keep going (even drunk drivers usually continue)
         if self._entered_intersection:
             self.decision = "go"
             self.recommended_speed = max(self.recommended_speed, self.target_speed * 0.6)
 
     def _make_decision_adaptive_fallback(self):
-        """
-        Fallback ADAPTIV — nu pur deterministic.
-        Tine cont de istoricul deciziilor si nu repeta identic la fiecare pas.
-        """
         all_agents = channel.get_all_states()
 
         if all_agents:
@@ -831,7 +691,6 @@ class VehicleAgent:
 
         red = self._is_red_light()
 
-        # ── RED: opreste-te inainte de linia de stop ──
         if red is True and not self._entered_intersection and not self.is_emergency:
             self.decision = "stop"
             self.reason = "red_light"
@@ -845,7 +704,6 @@ class VehicleAgent:
             self._record_fallback_decision("stop", "red_light")
             return
 
-        # ── GREEN: porneste si mergi! ──
         if red is False:
             self.decision = "go"
             self.reason = "green_light"
@@ -853,13 +711,10 @@ class VehicleAgent:
             self._record_fallback_decision("go", "green_light")
             return
 
-        # ── Fara semafor: prioritate de dreapta + ADAPTARE ──
         self.decision = base_decision
         self.reason = base_reason
 
-        # ADAPTARE: daca am cedat prea mult timp si nu mai e risc, pleaca
         if self.decision in ("yield", "stop") and self._fallback_consecutive > 40:
-            # Verifica daca e safe sa plec
             nearby = self._get_nearby_vehicles_info()
             all_safe = True
             for o in nearby:
@@ -878,7 +733,6 @@ class VehicleAgent:
                 self._fallback_last_action = None
                 logger.info(f"[{self.agent_id}] Adaptive: stopped yielding after prolonged wait")
 
-        # ADAPTARE: check V2X broadcasts for emergency nearby
         v2x_alerts = channel.get_broadcasts_for(self.agent_id, last_seconds=3.0)
         for alert in v2x_alerts:
             if alert.alert_type == "emergency":
@@ -887,7 +741,6 @@ class VehicleAgent:
                     self.reason = "v2x_emergency_nearby"
                     break
             elif alert.alert_type == "erratic_driving":
-                # Sofer beat detectat prin V2X — incetineste si cedeaza
                 if self.decision == "go":
                     nearby = self._get_nearby_vehicles_info()
                     for o in nearby:
@@ -904,7 +757,6 @@ class VehicleAgent:
                                 logger.info(f"[{self.agent_id}] Braking: drunk driver {alert.from_id} nearby!")
                             break
             elif alert.alert_type == "entering_intersection":
-                # Alt vehicul e deja in intersectie
                 if not self._entered_intersection and self.decision == "go":
                     nearby = self._get_nearby_vehicles_info()
                     for o in nearby:
@@ -922,7 +774,6 @@ class VehicleAgent:
         msg = self._build_message()
         self.recommended_speed = compute_recommended_speed(msg, self.decision, self.target_speed)
 
-        # ── Safety override: following distance ──
         following_cap = self._compute_following_speed()
         if following_cap < self.recommended_speed:
             self.recommended_speed = following_cap
@@ -941,15 +792,12 @@ class VehicleAgent:
         self._record_fallback_decision(self.decision, self.reason)
 
     def _record_fallback_decision(self, action: str, reason: str):
-        """Inregistreaza decizia fallback in memoria proprie."""
-        # Track consecutive same action (deterministic anti-deadlock)
         if action == self._fallback_last_action:
             self._fallback_consecutive += 1
         else:
-            self._fallback_consecutive = 1  # prima aparitie a noii actiuni
+            self._fallback_consecutive = 1
         self._fallback_last_action = action
 
-        # Record in LLM brain memory (chiar daca LLM nu e activ, memoria exista)
         situation = (
             f"pos=({self.x:.0f},{self.y:.0f}) spd={self.speed:.1f} "
             f"risk={self.risk_level} light={self._get_traffic_light_str() or 'none'} "
@@ -961,7 +809,6 @@ class VehicleAgent:
             "reason": reason,
         })
 
-    # ──────────────────────── Position & Speed ────────────────────────
 
     def _update_position(self):
         if self.speed < 0.01:
@@ -971,7 +818,6 @@ class VehicleAgent:
         new_x = self.x + self.speed * math.sin(rad) * UPDATE_INTERVAL
         new_y = self.y + self.speed * math.cos(rad) * UPDATE_INTERVAL
 
-        # Opreste-te la linia de stop daca nu ai voie sa treci
         if self.decision != "go" and not self.is_emergency and not self.is_drunk and not self._entered_intersection:
             if self._moves_on_y():
                 if abs(self.y) >= STOP_LINE and abs(new_y) < STOP_LINE:
@@ -985,7 +831,6 @@ class VehicleAgent:
         self.x = new_x
         self.y = new_y
 
-        # Detecteaza ca a intrat in intersectie
         if self._moves_on_y():
             if abs(self.y) < STOP_LINE:
                 self._entered_intersection = True
@@ -1014,7 +859,6 @@ class VehicleAgent:
         if self.is_drunk:
             self.speed = max(0.0, min(self.speed, MAX_SPEED))
 
-    # ──────────────────────── Message ────────────────────────
 
     def _build_message(self):
         return V2XMessage(
@@ -1029,7 +873,6 @@ class VehicleAgent:
             arrested=self._arrested,
         )
 
-    # ──────────────────────── Lifecycle ────────────────────────
 
     def _check_passed_intersection(self):
         dist = distance(self.x, self.y, *INTERSECTION_CENTER)
@@ -1037,10 +880,8 @@ class VehicleAgent:
             self._passed_intersection = True
         return self._passed_intersection and dist > 120.0
 
-    # ──────────────────────── Waypoint Navigation (background traffic) ────────────────────────
 
     def _nearest_intersection(self):
-        """Find the nearest intersection center from the grid."""
         from background_traffic import INTERSECTIONS
         best = None
         best_dist = float('inf')
@@ -1052,7 +893,6 @@ class VehicleAgent:
         return best, best_dist
 
     def _distance_to_nearest_stop_line(self):
-        """Distance to the stop line of the nearest intersection."""
         inter, _ = self._nearest_intersection()
         if inter is None:
             return float('inf')
@@ -1063,7 +903,6 @@ class VehicleAgent:
             return max(0.0, abs(self.x - ix) - STOP_LINE)
 
     def _is_inside_nearest_intersection(self):
-        """Check if we're inside the nearest intersection box."""
         inter, _ = self._nearest_intersection()
         if inter is None:
             return False
@@ -1074,7 +913,6 @@ class VehicleAgent:
         if self._apply_pullover():
             return
 
-        # Police chase logic — before emergency override
         if self.is_police and self._police_chase_drunk():
             return
 
@@ -1088,8 +926,6 @@ class VehicleAgent:
         others = channel.get_other_agents(self.agent_id)
         my_msg = self._build_message()
 
-        # Compute risk directly via TTC (skip compute_risk_for_agent which
-        # filters by distance to INTERSECTION_CENTER at 0,0)
         self.risk_level = "low"
         for other_id, other_msg in others.items():
             if other_msg.agent_type != "vehicle":
@@ -1097,19 +933,16 @@ class VehicleAgent:
             d = distance(self.x, self.y, other_msg.x, other_msg.y)
             if d > 150:
                 continue
-            # Skip same-road opposite direction (they won't collide)
-            # Also verify they're on the same road (close perpendicular coord)
             my_axis = self._get_movement_axis()
             o_rad = math.radians(other_msg.direction)
             o_axis = "NS" if abs(math.cos(o_rad)) >= abs(math.sin(o_rad)) else "EW"
             if my_axis == o_axis:
-                # Same axis — check if they're on separate lanes (no collision possible)
                 perp_dist = abs(self.x - other_msg.x) if my_axis == "NS" else abs(self.y - other_msg.y)
                 if perp_dist > 12.0:
-                    continue  # different lanes on same axis — no collision risk
+                    continue
                 angle_diff = abs(self.direction - other_msg.direction) % 360
                 if abs(angle_diff - 180) < 15:
-                    continue  # opposite directions on same road — separate lanes
+                    continue
             ttc = compute_ttc(my_msg, other_msg)
             if ttc < 3.0:
                 self.risk_level = "collision"
@@ -1121,14 +954,12 @@ class VehicleAgent:
 
         inside = self._is_inside_nearest_intersection()
 
-        # If already inside intersection, keep going
         if inside:
             self.decision = "go"
             self.reason = "in_intersection"
             self.recommended_speed = self.target_speed
             return
 
-        # ── Check grid traffic lights ──
         inter, inter_dist = self._nearest_intersection()
         if inter and inter_dist < 100:
             from background_traffic import bg_traffic
@@ -1147,9 +978,8 @@ class VehicleAgent:
                         self.recommended_speed = self.target_speed * 0.6
                     return
 
-        # Check for nearby vehicles that could collide
         dist_to_stop = self._distance_to_nearest_stop_line()
-        dominated = False  # should I yield?
+        dominated = False
 
         for other_id, other_msg in others.items():
             if other_msg.agent_type != "vehicle":
@@ -1158,33 +988,29 @@ class VehicleAgent:
             if d > 150:
                 continue
 
-            # ── Skip vehicles on same axis but different lanes (no collision outside intersection) ──
             my_axis = self._get_movement_axis()
             o_rad = math.radians(other_msg.direction)
             o_axis = "NS" if abs(math.cos(o_rad)) >= abs(math.sin(o_rad)) else "EW"
             if my_axis == o_axis:
                 perp_dist = abs(self.x - other_msg.x) if my_axis == "NS" else abs(self.y - other_msg.y)
                 if perp_dist > 12.0:
-                    continue  # different lanes on same axis — ignore completely
+                    continue
                 angle_diff_check = abs(self.direction - other_msg.direction) % 360
                 if abs(angle_diff_check - 180) < 15:
-                    continue  # opposite direction on same road — separate lanes
+                    continue
 
-            # ── Same-lane, same-direction: follow the leader ──
             angle_diff = abs(self.direction - other_msg.direction) % 360
             same_dir = angle_diff < 30 or angle_diff > 330
 
             if my_axis == o_axis and same_dir and d < 80 and not self.is_emergency:
-                # Check if other is AHEAD of us (dot product with our heading)
                 rad = math.radians(self.direction)
                 fwd_x = math.sin(rad)
                 fwd_y = math.cos(rad)
                 dx = other_msg.x - self.x
                 dy = other_msg.y - self.y
                 dot = fwd_x * dx + fwd_y * dy
-                if dot > 0:  # other is ahead, same lane (perp already checked above)
-                    # Follow: match speed, keep distance
-                    gap = dot  # forward distance (not euclidean)
+                if dot > 0:
+                    gap = dot
                     safe_dist = 25.0
                     if gap < safe_dist:
                         self.decision = "brake"
@@ -1195,28 +1021,22 @@ class VehicleAgent:
                         self.reason = "following"
                         self.recommended_speed = min(self.target_speed, other_msg.speed)
                     else:
-                        continue  # far enough, don't care
-                    return  # handled — skip intersection logic
+                        continue
+                    return
 
             ttc = compute_ttc(my_msg, other_msg)
 
-            # Emergency vehicle nearby — always yield
             if other_msg.is_emergency and ttc < 10.0:
                 dominated = True
                 self.reason = "emergency_nearby"
                 break
 
-            # Drunk driver nearby — brake and yield
             if other_msg.is_drunk and ttc < 10.0:
                 dominated = True
                 self.reason = "drunk_driver_nearby"
                 break
 
-            # Very close and converging — check who yields
             if ttc < 5.0:
-                # Simple priority: the one with lower agent_id goes first
-                # (mimics priority negotiation without full logic)
-                # Also: if other is already faster/closer to intersection, yield
                 if other_msg.speed > self.speed + 1.0:
                     dominated = True
                     self.reason = "faster_vehicle"
@@ -1226,25 +1046,22 @@ class VehicleAgent:
                 break
 
             if ttc < 8.0 and self.risk_level in ("high", "collision"):
-                # Check approach directions — if perpendicular, use right-of-way
                 my_axis = self._get_movement_axis()
                 other_rad = math.radians(other_msg.direction)
                 other_axis = "NS" if abs(math.cos(other_rad)) >= abs(math.sin(other_rad)) else "EW"
 
                 if my_axis != other_axis:
-                    # Perpendicular — use right-hand rule based on heading
                     from priority_negotiation import is_on_right
-                    # Determine approach direction from heading
                     def _heading_to_approach(direction):
                         d = direction % 360
                         if 315 <= d or d < 45:
-                            return "south"   # heading north, coming from south
+                            return "south"
                         elif 45 <= d < 135:
-                            return "west"    # heading east, coming from west
+                            return "west"
                         elif 135 <= d < 225:
-                            return "north"   # heading south, coming from north
+                            return "north"
                         else:
-                            return "east"    # heading west, coming from east
+                            return "east"
 
                     my_approach = _heading_to_approach(self.direction)
                     other_approach = _heading_to_approach(other_msg.direction)
@@ -1267,14 +1084,11 @@ class VehicleAgent:
             self.recommended_speed = self.target_speed
 
     def _bg_drunk_erratic_decision(self):
-        """Erratic decision making for drunk driver on the grid (waypoint-based)."""
-        # Broadcast erratic driving alert via V2X
         self._broadcast_v2x_alert(
             "erratic_driving",
             f"DRUNK DRIVER! Erratic vehicle at ({self.x:.0f},{self.y:.0f}) speed {self.speed:.0f}m/s heading {self.direction:.0f}°"
         )
 
-        # Check risk for V2X awareness (others can see us)
         others = channel.get_other_agents(self.agent_id)
         my_msg = self._build_message()
         self.risk_level = "low"
@@ -1290,7 +1104,6 @@ class VehicleAgent:
             elif ttc < 6.0 and self.risk_level != "collision":
                 self.risk_level = "high"
 
-        # Random erratic actions
         roll = random.random()
 
         if roll < DRUNK_RANDOM_STOP_CHANCE:
@@ -1311,7 +1124,6 @@ class VehicleAgent:
             self.recommended_speed = self.target_speed + random.uniform(-2, 3)
             self.recommended_speed = max(2.0, min(MAX_SPEED, self.recommended_speed))
 
-        # Check grid traffic lights — IGNORE red lights most of the time
         inter, inter_dist = self._nearest_intersection()
         if inter and inter_dist < 100:
             from background_traffic import bg_traffic
@@ -1320,15 +1132,11 @@ class VehicleAgent:
                 my_axis = self._get_movement_axis()
                 if not tl.is_green_for_axis(my_axis):
                     if random.random() < DRUNK_IGNORE_RED_CHANCE:
-                        # IGNORE red light!
                         self.decision = "go"
                         self.reason = "drunk_ignores_red"
                         self.recommended_speed = max(self.recommended_speed, self.target_speed * 0.8)
 
     def _run_loop_waypoint(self):
-        """Intelligent waypoint-following loop for background traffic vehicles.
-        Persistent vehicles never despawn — they turn at edges and at random intersections.
-        """
         from background_traffic import (
             generate_continuation_waypoints,
             generate_random_turn_at_intersection,
@@ -1337,17 +1145,14 @@ class VehicleAgent:
         )
 
         yield_counter = 0
-        TURN_CHANCE = 0.30  # 30% chance to turn at each intersection
+        TURN_CHANCE = 0.30
 
         while self._running:
-            # ── Police arrest: if this drunk was arrested, stop and wait for removal ──
             if self._arrested:
                 if self._process_arrest():
-                    # Timer expired — remove from simulation
                     from simulation import simulation
                     self._running = False
                     channel.remove_agent(self.agent_id)
-                    # Remove from simulation.vehicles list
                     simulation.vehicles = [v for v in simulation.vehicles if v.agent_id != self.agent_id]
                     logger.info(f"[POLICE] Drunk driver {self.agent_id} removed from simulation")
                     return
@@ -1355,7 +1160,6 @@ class VehicleAgent:
                 time.sleep(UPDATE_INTERVAL)
                 continue
 
-            # If we ran out of waypoints, generate continuation
             if not self._waypoints:
                 if self.persistent:
                     new_wps, new_dir = generate_continuation_waypoints(
@@ -1365,12 +1169,11 @@ class VehicleAgent:
                         self._waypoints = new_wps
                         continue
                     else:
-                        # Fallback: shouldn't happen, but just reverse
                         self.direction = (self.direction + 180) % 360
                         time.sleep(UPDATE_INTERVAL)
                         continue
                 else:
-                    break  # non-persistent: finish
+                    break
 
             tx, ty = self._waypoints[0]
             dx = tx - self.x
@@ -1378,11 +1181,8 @@ class VehicleAgent:
             dist = math.sqrt(dx * dx + dy * dy)
 
             if dist < 10.0:
-                # ── Reached waypoint ──
                 reached_wp = self._waypoints.pop(0)
 
-                # Snap position to the waypoint to prevent lane drift on turns
-                # Check if there's a significant direction change
                 if self._waypoints:
                     next_tx, next_ty = self._waypoints[0]
                     ndx = next_tx - reached_wp[0]
@@ -1394,17 +1194,11 @@ class VehicleAgent:
                         if angle_diff > 180:
                             angle_diff = 360 - angle_diff
                         if angle_diff > 30:
-                            # Significant turn — snap to the waypoint position
                             self.x, self.y = reached_wp
                 else:
-                    # Last waypoint reached — for persistent, will generate
-                    # continuation on next iteration
                     pass
 
-                # ── Random turn decision at intersections ──
                 if self._waypoints and not self.is_drunk and not self.is_emergency:
-                    # Check if we're near an intersection (the waypoint we just
-                    # reached was at an intersection)
                     wp_x, wp_y = reached_wp
                     at_intersection = any(
                         abs(wp_x - ix) < 15 and abs(wp_y - iy) < 15
@@ -1415,20 +1209,17 @@ class VehicleAgent:
                             self.x, self.y, self.direction
                         )
                         if turn_wps:
-                            # Replace remaining waypoints with turn route
                             self._waypoints = turn_wps
-                            # Snap position for the turn
                             self.x, self.y = _snap_to_lane(self.x, self.y, self.direction)
 
                 if not self._waypoints:
-                    continue  # will generate continuation at top of loop
+                    continue
 
                 tx, ty = self._waypoints[0]
                 dx = tx - self.x
                 dy = ty - self.y
                 dist = math.sqrt(dx * dx + dy * dy)
 
-            # Update direction toward waypoint
             if dist > 0.1:
                 base_dir = math.degrees(math.atan2(dx, dy)) % 360
                 if self.is_drunk:
@@ -1439,7 +1230,6 @@ class VehicleAgent:
                 else:
                     self.direction = base_dir
 
-            # ── Intelligent decision making ──
             if self.is_drunk:
                 self._bg_drunk_erratic_decision()
             else:
@@ -1457,7 +1247,6 @@ class VehicleAgent:
                         if "follow" not in self.reason:
                             self.reason = "following_too_close"
 
-            # ── Turn speed reduction: slow down when approaching a corner ──
             if len(self._waypoints) >= 2 and not self.is_drunk:
                 next_tx, next_ty = self._waypoints[0]
                 after_tx, after_ty = self._waypoints[1]
@@ -1478,7 +1267,6 @@ class VehicleAgent:
                             self.target_speed * turn_factor
                         )
 
-            # Anti-deadlock (but not when pulling over for emergency)
             if self.decision in ("yield", "stop") and self.reason not in ("pullover_emergency", "returning_to_lane"):
                 yield_counter += 1
                 if yield_counter > 60:
@@ -1489,13 +1277,11 @@ class VehicleAgent:
             else:
                 yield_counter = 0
 
-            # Adjust speed
             if self.speed < self.recommended_speed:
                 self.speed = min(self.speed + ACCELERATION * UPDATE_INTERVAL, self.recommended_speed)
             elif self.speed > self.recommended_speed:
                 self.speed = max(self.speed - DECELERATION * UPDATE_INTERVAL, self.recommended_speed)
 
-            # Move
             if self.speed > 0.01:
                 rad = math.radians(self.direction)
                 self.x += self.speed * math.sin(rad) * UPDATE_INTERVAL
@@ -1504,12 +1290,10 @@ class VehicleAgent:
             channel.publish(self._build_message())
             time.sleep(UPDATE_INTERVAL)
 
-        # Done — remove self (only for non-persistent)
         self._running = False
         channel.remove_agent(self.agent_id)
 
     def _run_loop(self):
-        # Background vehicles use simple waypoint navigation
         if self._is_background:
             self._run_loop_waypoint()
             return
@@ -1555,7 +1339,6 @@ class VehicleAgent:
             "pulling_over": self._pulling_over,
             "arrested": self._arrested,
         }
-        # Include LLM + memory stats
         llm_stats = self._llm_brain.get_stats()
         state["llm_calls"] = llm_stats["llm_calls"]
         state["llm_errors"] = llm_stats["llm_errors"]

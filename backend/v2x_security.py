@@ -1,16 +1,3 @@
-"""
-v2x_security.py — Modul de securitate V2X.
-
-Cerinta: Sistemul nu transmite date de localizare sau telemetrie fara protectie
-si integreaza mecanisme de siguranta pentru situatii limita (agenti inactivi, date corupte).
-
-Implementeaza:
-1. Semnare HMAC-SHA256 a mesajelor V2X (integritate + autenticitate)
-2. Validare date (range checks, NaN/Inf, tipuri corecte)
-3. Detectie agenti inactivi (stale timeout + cleanup)
-4. Rate limiting pe broadcast (anti-flood)
-5. Sanitizare output catre frontend (nu se trimit date brute)
-"""
 
 import os
 import hmac
@@ -24,16 +11,14 @@ from collections import defaultdict
 
 logger = logging.getLogger("v2x_security")
 
-# ─── CONFIG (din .env) ──────────────────────────────────────────────────────
 
 V2X_HMAC_KEY = os.getenv("V2X_HMAC_KEY", "v2x-hmac-secret-change-in-prod")
 _HMAC_KEY_BYTES = V2X_HMAC_KEY.encode("utf-8")
 
 AGENT_STALE_TIMEOUT = float(os.getenv("AGENT_STALE_TIMEOUT", "5.0"))
-BROADCAST_RATE_LIMIT = int(os.getenv("BROADCAST_RATE_LIMIT", "10"))  # per agent per sec
+BROADCAST_RATE_LIMIT = int(os.getenv("BROADCAST_RATE_LIMIT", "10"))
 MAX_WS_CONNECTIONS = int(os.getenv("MAX_WS_CONNECTIONS", "20"))
 
-# Limite fizice
 COORD_MIN, COORD_MAX = -500.0, 500.0
 SPEED_MIN, SPEED_MAX = 0.0, 50.0
 MAX_STR_LEN = 64
@@ -44,13 +29,8 @@ VALID_RISKS = frozenset({"low", "medium", "high", "collision"})
 VALID_AGENT_TYPES = frozenset({"vehicle", "infrastructure"})
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-#  1. HMAC  — semnare si verificare mesaje V2X
-# ═══════════════════════════════════════════════════════════════════════════
-
 def sign_message(agent_id: str, x: float, y: float,
                  speed: float, direction: float, timestamp: float) -> str:
-    """Genereaza HMAC-SHA256 pentru un mesaj V2X."""
     payload = f"{agent_id}|{x:.4f}|{y:.4f}|{speed:.4f}|{direction:.4f}|{timestamp:.6f}"
     return hmac.new(_HMAC_KEY_BYTES, payload.encode(), hashlib.sha256).hexdigest()
 
@@ -58,14 +38,9 @@ def sign_message(agent_id: str, x: float, y: float,
 def verify_signature(agent_id: str, x: float, y: float,
                      speed: float, direction: float,
                      timestamp: float, signature: str) -> bool:
-    """Verifica HMAC. Returneaza False daca semnatura e invalida."""
     expected = sign_message(agent_id, x, y, speed, direction, timestamp)
     return hmac.compare_digest(expected, signature)
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  2. VALIDARE DATE  — range checks, NaN, tipuri
-# ═══════════════════════════════════════════════════════════════════════════
 
 def _finite(v: float) -> bool:
     return isinstance(v, (int, float)) and not (math.isnan(v) or math.isinf(v))
@@ -78,7 +53,6 @@ def _clamp(v: float, lo: float, hi: float) -> float:
 
 
 def validate_agent_id(aid: Any) -> Optional[str]:
-    """Returneaza id-ul curatat sau None daca e invalid."""
     if not isinstance(aid, str):
         return None
     aid = aid.strip()
@@ -96,43 +70,33 @@ def validate_message(agent_id: str, agent_type: str,
                      timestamp: float,
                      is_emergency: bool,
                      is_drunk: bool = False) -> Tuple[bool, dict, list]:
-    """
-    Valideaza + sanitizeaza un mesaj V2X.
-    Returneaza (valid, sanitized_dict, errors_list).
-    """
     errors: list = []
     s: dict = {}
 
-    # agent_id
     cid = validate_agent_id(agent_id)
     if cid is None:
         errors.append(f"bad agent_id: {agent_id!r}")
     s["agent_id"] = cid or "UNKNOWN"
 
-    # agent_type
     if agent_type not in VALID_AGENT_TYPES:
         errors.append(f"bad agent_type: {agent_type!r}")
     s["agent_type"] = agent_type if agent_type in VALID_AGENT_TYPES else "vehicle"
 
-    # coordonate
     for name, val in [("x", x), ("y", y)]:
         if not _finite(val):
             errors.append(f"{name} not finite: {val}")
         s[name] = round(_clamp(val, COORD_MIN, COORD_MAX), 4)
 
-    # viteza
     if not _finite(speed):
         errors.append(f"speed not finite: {speed}")
     s["speed"] = round(_clamp(speed, SPEED_MIN, SPEED_MAX), 4)
 
-    # directie
     if not _finite(direction):
         errors.append(f"direction not finite: {direction}")
         s["direction"] = 0.0
     else:
         s["direction"] = round(direction % 360.0, 4)
 
-    # string-uri
     if not isinstance(intention, str) or len(intention) > MAX_STR_LEN:
         errors.append(f"bad intention: {intention!r}")
         s["intention"] = "straight"
@@ -143,14 +107,12 @@ def validate_message(agent_id: str, agent_type: str,
         errors.append(f"bad risk_level: {risk_level!r}")
     s["risk_level"] = risk_level if risk_level in VALID_RISKS else "low"
 
-    # decision — poate fi si actiune infra (NS_GREEN etc.)
     if not isinstance(decision, str) or len(decision) > MAX_STR_LEN:
         errors.append(f"bad decision: {decision!r}")
         s["decision"] = "stop"
     else:
         s["decision"] = decision
 
-    # timestamp — anti-replay (max 10s decalaj)
     now = time.time()
     if not _finite(timestamp) or abs(now - timestamp) > 10.0:
         errors.append(f"timestamp suspicious: {timestamp} (now={now:.1f})")
@@ -164,13 +126,7 @@ def validate_message(agent_id: str, agent_type: str,
     return (len(errors) == 0, s, errors)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-#  3. DETECTIE AGENTI INACTIVI (stale)
-# ═══════════════════════════════════════════════════════════════════════════
-
 class StaleAgentDetector:
-    """Trackuieste ultimul mesaj primit de la fiecare agent.
-       Returneaza agentii care nu au mai trimis nimic in AGENT_STALE_TIMEOUT."""
 
     def __init__(self, timeout: float = AGENT_STALE_TIMEOUT):
         self._timeout = timeout
@@ -196,10 +152,6 @@ class StaleAgentDetector:
             self._last_seen.clear()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-#  4. RATE LIMITER  — anti-flood pe broadcast
-# ═══════════════════════════════════════════════════════════════════════════
-
 class RateLimiter:
     def __init__(self, max_per_sec: int = BROADCAST_RATE_LIMIT):
         self._max = max_per_sec
@@ -210,7 +162,6 @@ class RateLimiter:
         now = time.time()
         with self._lock:
             bucket = self._buckets[agent_id]
-            # evict old
             self._buckets[agent_id] = [t for t in bucket if now - t < 1.0]
             if len(self._buckets[agent_id]) >= self._max:
                 return False
@@ -221,10 +172,6 @@ class RateLimiter:
         with self._lock:
             self._buckets.clear()
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  5. SANITIZARE OUTPUT CATRE FRONTEND (WebSocket / API)
-# ═══════════════════════════════════════════════════════════════════════════
 
 def _safe_str(val: Any, maxlen: int = MAX_STR_LEN) -> str:
     return str(val)[:maxlen] if val is not None else ""
@@ -237,7 +184,6 @@ def _safe_num(val: Any, default: float = 0.0) -> float:
 
 
 def sanitize_agent(raw: dict) -> dict:
-    """Curata un dict agent inainte de trimitere la frontend."""
     return {
         "agent_id":     _safe_str(raw.get("agent_id"), MAX_ID_LEN),
         "agent_type":   raw.get("agent_type", "vehicle") if raw.get("agent_type") in VALID_AGENT_TYPES else "vehicle",
@@ -251,7 +197,6 @@ def sanitize_agent(raw: dict) -> dict:
         "is_emergency": bool(raw.get("is_emergency")),
         "is_drunk":     bool(raw.get("is_drunk")),
         "timestamp":    round(_safe_num(raw.get("timestamp"), time.time()), 1),
-        # campuri non-sensibile — stats
         **{k: raw[k] for k in ("reason", "llm_calls", "llm_errors",
                                 "memory_decisions", "near_misses",
                                 "v2x_alerts_received", "lessons_learned")
@@ -260,20 +205,17 @@ def sanitize_agent(raw: dict) -> dict:
 
 
 def sanitize_full_state(raw: dict) -> dict:
-    """Sanitizeaza starea completa inainte de WebSocket."""
     safe: dict = {
         "scenario": _safe_str(raw.get("scenario")) or None,
         "running":  bool(raw.get("running")),
     }
 
-    # agents
     agents_raw = raw.get("agents") or {}
     safe["agents"] = {
         _safe_str(k, MAX_ID_LEN): sanitize_agent(v)
         for k, v in agents_raw.items() if isinstance(v, dict)
     }
 
-    # infrastructure
     infra = raw.get("infrastructure") or {}
     if isinstance(infra, dict) and infra:
         safe["infrastructure"] = {
@@ -300,7 +242,6 @@ def sanitize_full_state(raw: dict) -> dict:
     else:
         safe["infrastructure"] = {}
 
-    # collision_pairs (max 50)
     pairs = raw.get("collision_pairs") or []
     safe["collision_pairs"] = [
         {
@@ -312,11 +253,9 @@ def sanitize_full_state(raw: dict) -> dict:
         for p in pairs[:50] if isinstance(p, dict)
     ]
 
-    # stats
     safe["stats"] = {k: v for k, v in (raw.get("stats") or {}).items()
                      if isinstance(v, (int, float))}
 
-    # grid info (intersections layout) — pass through validated
     grid_raw = raw.get("grid")
     if isinstance(grid_raw, dict):
         safe["grid"] = {
@@ -334,10 +273,8 @@ def sanitize_full_state(raw: dict) -> dict:
             },
         }
 
-    # background traffic status
     safe["background_traffic"] = bool(raw.get("background_traffic"))
 
-    # traffic light intersections
     tl_raw = raw.get("traffic_light_intersections") or []
     safe["traffic_light_intersections"] = [
         {
@@ -352,10 +289,5 @@ def sanitize_full_state(raw: dict) -> dict:
     return safe
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-#  GLOBAL SINGLETONS
-# ═══════════════════════════════════════════════════════════════════════════
-
 stale_detector = StaleAgentDetector()
 broadcast_limiter = RateLimiter()
-

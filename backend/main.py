@@ -1,20 +1,3 @@
-"""
-main.py — Server FastAPI SECURIZAT cu API REST si WebSocket.
-
-Securitate:
-- Autentificare: Token Bearer pe REST + query param pe WebSocket
-- Rate Limiting: REST endpoints au limita per IP per minut (anti-flood)
-- WebSocket: datele sunt SANITIZATE inainte de trimitere (nu se trimit date brute)
-- WebSocket: limita MAX conexiuni simultane
-- CORS: restrans la originile necesare
-- Input: validare scenario names (whitelist)
-- Endpoint /security/stats: monitoring securitate in timp real
-
-Arhitectura:
-- SimulationManager este un singleton in-process. Serverul TREBUIE rulat cu
-  un singur worker (uvicorn --workers 1). La startup se verifica automat.
-  Pentru scalare horizontala se recomanda Redis ca state-store.
-"""
 
 import sys, os, glob, importlib
 sys.dont_write_bytecode = True
@@ -25,10 +8,9 @@ for pyc in glob.glob(os.path.join(os.path.dirname(__file__), "__pycache__", "*.p
         pass
 importlib.invalidate_caches()
 
-# Load .env file
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
-load_dotenv()  # also try local .env
+load_dotenv()
 
 import logging
 logging.basicConfig(
@@ -50,14 +32,12 @@ from v2x_channel import channel
 from background_traffic import bg_traffic, get_grid_info
 from v2x_security import MAX_WS_CONNECTIONS, sanitize_full_state
 
-# ─── SECURITY CONFIG (read early, before app creation) ────────────────────────
 API_TOKEN = os.getenv("API_TOKEN", "v2x-secret-token-change-in-prod")
-REST_RATE_LIMIT = int(os.getenv("REST_RATE_LIMIT", "30"))  # req/min per IP
+REST_RATE_LIMIT = int(os.getenv("REST_RATE_LIMIT", "30"))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup / shutdown lifecycle — modern FastAPI pattern."""
     logger.info("=" * 60)
     logger.info("  V2X Safety Agent — starting up")
     logger.info(f"  Auth enabled: {bool(API_TOKEN)}")
@@ -68,7 +48,6 @@ async def lifespan(app: FastAPI):
     logger.info("  For horizontal scaling, replace SimulationManager with Redis.")
     logger.info("=" * 60)
     yield
-    # Shutdown: opreste simularea daca ruleaza
     if simulation.running:
         simulation.stop()
     logger.info("V2X Safety Agent — shut down cleanly.")
@@ -77,10 +56,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="V2X Intersection Safety Agent", lifespan=lifespan)
 
 
-# ─── REST RATE LIMITER (per IP, per minute) ──────────────────────────────────
-
 class _RestRateLimiter:
-    """Simple in-memory sliding-window rate limiter per IP."""
 
     def __init__(self, max_per_min: int):
         self._max = max_per_min
@@ -103,12 +79,9 @@ class _RestRateLimiter:
 _rest_limiter = _RestRateLimiter(REST_RATE_LIMIT)
 
 
-# ─── AUTH: Token-based authentication ────────────────────────────────────────
-
 async def verify_token(authorization: Optional[str] = Header(None)):
-    """Verifica header-ul Authorization: Bearer <token>."""
     if not API_TOKEN:
-        return  # daca nu e setat token, skip (dev mode)
+        return
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
     parts = authorization.split(" ", 1)
@@ -117,14 +90,11 @@ async def verify_token(authorization: Optional[str] = Header(None)):
 
 
 async def rate_limit(request: Request):
-    """Rate limiting pe endpoint-uri REST."""
     client_ip = request.client.host if request.client else "unknown"
     if not _rest_limiter.allow(client_ip):
         raise HTTPException(status_code=429, detail="Too many requests. Try again later.")
 
 
-
-# ─── CORS: restrans la frontend-uri cunoscute ───────────────────────────────
 ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
 
 app.add_middleware(
@@ -134,13 +104,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─── WebSocket: conexiuni cu limita + sanitizare ────────────────────────────
 MAX_WS_CONNECTIONS = 10
 active_connections: Set[WebSocket] = set()
 
 
 def sanitize_full_state(raw: dict) -> dict:
-    """Sanitizeaza starea completa inainte de trimitere prin WebSocket."""
     if not isinstance(raw, dict):
         return {}
 
@@ -210,14 +178,12 @@ def sanitize_full_state(raw: dict) -> dict:
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
-    # Autentificare prin query param: /ws?token=xxx
     if API_TOKEN and token != API_TOKEN:
         logger.warning("[SECURITY] WebSocket REFUZAT — token invalid sau lipsa")
         await websocket.accept()
         await websocket.close(code=1008, reason="Unauthorized")
         return
 
-    # Limita conexiuni
     if len(active_connections) >= MAX_WS_CONNECTIONS:
         logger.warning(f"[SECURITY] WebSocket REFUZAT — max {MAX_WS_CONNECTIONS} conexiuni atinse")
         await websocket.close(code=1013, reason="Too many connections")
@@ -229,7 +195,6 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(
     try:
         while True:
             raw_state = simulation.get_full_state()
-            # SANITIZARE: nu trimitem date brute, ci validate si curatate
             safe_state = sanitize_full_state(raw_state)
             await websocket.send_json(safe_state)
             await asyncio.sleep(0.05)
@@ -238,8 +203,6 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(
     except Exception:
         active_connections.discard(websocket)
 
-
-# ─── API Endpoints cu validare input ────────────────────────────────────────
 
 VALID_SCENARIOS = frozenset([
     "emergency_vehicle", "emergency_vehicle_no_lights",
@@ -265,7 +228,6 @@ def root():
 
 @app.post("/simulation/start/{scenario}", dependencies=[Depends(verify_token), Depends(rate_limit)])
 def start_simulation(scenario: str):
-    # Validare stricta — doar scenarii din whitelist
     if scenario not in VALID_SCENARIOS:
         return {"error": f"Unknown scenario. Use one of: {sorted(VALID_SCENARIOS)}"}
     simulation.start(scenario)
@@ -329,12 +291,10 @@ def get_channel():
 
 @app.post("/simulation/spawn-drunk", dependencies=[Depends(verify_token), Depends(rate_limit)])
 def spawn_drunk_driver():
-    """Spawn a drunk driver vehicle on a random route through the grid."""
     import random
     from agents import VehicleAgent
     from background_traffic import _build_route, _ALL_ROUTE_KEYS
 
-    # Pick a random route
     route_key = random.choice(_ALL_ROUTE_KEYS)
     waypoints, direction = _build_route(route_key)
     if len(waypoints) < 2:
@@ -343,7 +303,6 @@ def spawn_drunk_driver():
     start_x, start_y = waypoints[0]
     speed = random.uniform(8.0, 12.0)
 
-    # Generate unique drunk driver ID
     if not hasattr(spawn_drunk_driver, '_counter'):
         spawn_drunk_driver._counter = 0
     spawn_drunk_driver._counter += 1
@@ -362,7 +321,6 @@ def spawn_drunk_driver():
         is_drunk=True,
     )
 
-    # Add to simulation vehicles list so it shows up
     simulation.vehicles.append(vehicle)
     simulation.stats["total_vehicles"] += 1
     vehicle.start()
@@ -373,12 +331,10 @@ def spawn_drunk_driver():
 
 @app.post("/simulation/spawn-police", dependencies=[Depends(verify_token), Depends(rate_limit)])
 def spawn_police_car():
-    """Spawn a police car on a random route through the grid."""
     import random
     from agents import VehicleAgent
     from background_traffic import _build_route, _ALL_ROUTE_KEYS
 
-    # Pick a random route
     route_key = random.choice(_ALL_ROUTE_KEYS)
     waypoints, direction = _build_route(route_key)
     if len(waypoints) < 2:
@@ -387,7 +343,6 @@ def spawn_police_car():
     start_x, start_y = waypoints[0]
     speed = random.uniform(20.0, 25.0)
 
-    # Generate unique police car ID
     if not hasattr(spawn_police_car, '_counter'):
         spawn_police_car._counter = 0
     spawn_police_car._counter += 1
@@ -405,7 +360,6 @@ def spawn_police_car():
         waypoints=waypoints[1:],
     )
 
-    # Add to simulation vehicles list so it shows up
     simulation.vehicles.append(vehicle)
     simulation.stats["total_vehicles"] += 1
     vehicle.start()
@@ -433,23 +387,18 @@ def get_grid():
 
 @app.get("/v2x/history")
 def get_history(last_n: int = 50):
-    # Validare input
     last_n = max(1, min(last_n, 500))
     return {"history": channel.get_history(last_n)}
 
 
-# ─── Telemetry endpoint ─────────────────────────────────────────────────────
-
 @app.get("/telemetry/report", dependencies=[Depends(verify_token)])
 def get_telemetry_report():
-    """Raport de performanta: coliziuni prevenite, throughput, scor cooperare."""
     from telemetry import telemetry
     return telemetry.generate_report()
 
 
 @app.post("/telemetry/export", dependencies=[Depends(verify_token), Depends(rate_limit)])
 def export_telemetry():
-    """Exporta raportul curent intr-un fisier JSON persistent."""
     from telemetry import telemetry
     filepath = telemetry.export_to_file()
     return {"status": "exported", "filepath": filepath}
@@ -457,17 +406,13 @@ def export_telemetry():
 
 @app.get("/telemetry/history", dependencies=[Depends(verify_token)])
 def get_telemetry_history(last_n: int = 10):
-    """Returneaza ultimele N rapoarte exportate."""
     from telemetry import telemetry
     last_n = max(1, min(last_n, 50))
     return {"reports": telemetry.get_history(last_n)}
 
 
-# ─── Security monitoring endpoint ──────────────────────────────────────────
-
 @app.get("/security/stats", dependencies=[Depends(verify_token)])
 def security_stats():
-    """Endpoint de monitoring securitate — arata mesaje respinse, agenti inactivi, etc."""
     from llm_brain import get_circuit_breaker_stats
     result = {
         "v2x_channel": channel.get_security_stats(),
@@ -477,7 +422,6 @@ def security_stats():
         "rest_rate_limit_per_min": REST_RATE_LIMIT,
         "llm_circuit_breaker": get_circuit_breaker_stats(),
     }
-    # Add intersection coordinator stats if available
     try:
         result["intersection_coordinator"] = bg_traffic._coordinator.get_stats()
     except Exception:
@@ -485,9 +429,6 @@ def security_stats():
     return result
 
 
-
 if __name__ == "__main__":
     import uvicorn
-    # IMPORTANT: workers=1 obligatoriu — SimulationManager e singleton in-process
     uvicorn.run("main:app", host="0.0.0.0", port=8000, workers=1)
-

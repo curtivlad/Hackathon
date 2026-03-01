@@ -89,8 +89,8 @@ export function useWebSocket() {
   const grid = state?.grid || null;
   const backgroundTrafficActive = state?.background_traffic || false;
 
-  const status = collisionPairs.some(p => p.risk === "collision" || p.risk === "high") 
-    ? "collision" 
+  const status = collisionPairs.some(p => p.risk === "collision" || p.risk === "high")
+    ? "collision"
     : "safe";
 
   return {

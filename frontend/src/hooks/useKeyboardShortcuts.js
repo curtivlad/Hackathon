@@ -44,4 +44,3 @@ export function useKeyboardShortcuts({
     return () => window.removeEventListener("keydown", handler);
   }, [startScenario, stopSimulation, restartSimulation, toggleBackgroundTraffic]);
 }
-

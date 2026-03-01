@@ -1,6 +1,3 @@
-"""
-infrastructure_agent.py — Semafor inteligent V2I cu faze adaptive si preemptare urgenta.
-"""
 
 import time
 import threading
@@ -110,10 +107,8 @@ class InfrastructureAgent:
 
             self.phase_timer += UPDATE_INTERVAL
             if self.phase_timer >= self.phase_duration:
-                # Allow a brief extension (max 5s) if vehicles are still clearing
-                # But ALWAYS switch after phase_duration + 5s
                 if self.phase_timer < self.phase_duration + 5.0 and self._vehicles_in_intersection(all_states):
-                    return  # wait a bit more for vehicles to clear
+                    return
                 self.phase_timer = 0.0
                 self.phase = "EW_GREEN" if self.phase == "NS_GREEN" else "NS_GREEN"
                 self.stats["phase_changes"] += 1

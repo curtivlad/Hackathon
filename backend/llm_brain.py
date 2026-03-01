@@ -1,16 +1,3 @@
-"""
-llm_brain.py — Modul LLM care da fiecarui vehicul un "creier" AI cu MEMORIE PROPRIE.
-
-Fiecare masina (agent) isi construieste un prompt cu situatia curenta,
-istoricul deciziilor anterioare si alertele V2X primite,
-si primeste de la LLM o decizie autonoma (action + recommended_speed + reason).
-Foloseste Google Gemini (configurat prin .env).
-
-Cerinte indeplinite:
-- Memorie proprie per agent (istoric decizii, near-misses, lectii invatate)
-- Perceptie prin mesaje V2X (alerte broadcast de la alti agenti)
-- Decizii autonome non-deterministe (contextul memoriei + V2X variaza la fiecare pas)
-"""
 
 import os
 import json
@@ -22,7 +9,6 @@ from typing import Dict, Optional, Any, List
 
 logger = logging.getLogger("llm_brain")
 
-# --- Config din .env ---
 LLM_ENABLED = os.getenv("LLM_ENABLED", "true").lower() == "true"
 LLM_MODEL = os.getenv("LLM_MODEL", "gemini-2.0-flash")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
@@ -30,7 +16,6 @@ LLM_CALL_INTERVAL = float(os.getenv("LLM_CALL_INTERVAL", "0.6"))
 LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "4.0"))
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "300"))
 
-# --- Google Gemini client (lazy init) ---
 _client = None
 _client_lock = threading.Lock()
 _client_init_attempted = False
@@ -61,22 +46,7 @@ def _get_client():
             return None
 
 
-# ──────────────────────── CIRCUIT BREAKER ────────────────────────
-
 class CircuitBreaker:
-    """
-    Circuit breaker pentru apeluri LLM.
-
-    Stari:
-      CLOSED  — normal, apelurile trec
-      OPEN    — LLM dezactivat automat dupa prea multe erori consecutive
-      HALF_OPEN — dupa cooldown, se incearca un singur apel de test
-
-    Daca rata de erori depaseste threshold-ul in fereastra de timp,
-    circuit-ul se deschide si LLM-ul e dezactivat temporar.
-    Dupa cooldown_seconds, se incearca un apel (half-open).
-    Daca reuseste => CLOSED. Daca esueaza => OPEN din nou.
-    """
 
     CLOSED = "closed"
     OPEN = "open"
@@ -93,34 +63,31 @@ class CircuitBreaker:
         self._cooldown = cooldown_seconds
 
         self._state = self.CLOSED
-        self._failures: list = []       # timestamps of recent failures
+        self._failures: list = []
         self._successes: int = 0
         self._last_failure_time: float = 0.0
         self._opened_at: float = 0.0
-        self._total_trips: int = 0      # how many times circuit opened
+        self._total_trips: int = 0
         self._lock = threading.Lock()
 
     @property
     def state(self) -> str:
         with self._lock:
             if self._state == self.OPEN:
-                # Check if cooldown has elapsed => transition to HALF_OPEN
                 if time.time() - self._opened_at >= self._cooldown:
                     self._state = self.HALF_OPEN
                     logger.info("[CircuitBreaker] HALF_OPEN — testing one LLM call")
             return self._state
 
     def allow_request(self) -> bool:
-        """Returns True if the LLM call should proceed."""
-        s = self.state  # triggers state transition check
+        s = self.state
         if s == self.CLOSED:
             return True
         if s == self.HALF_OPEN:
-            return True  # allow exactly one test call
-        return False  # OPEN — block
+            return True
+        return False
 
     def record_success(self):
-        """Called after a successful LLM call."""
         with self._lock:
             self._successes += 1
             if self._state == self.HALF_OPEN:
@@ -129,16 +96,13 @@ class CircuitBreaker:
                 logger.info("[CircuitBreaker] CLOSED — LLM recovered, resuming normal operation")
 
     def record_failure(self):
-        """Called after a failed LLM call."""
         now = time.time()
         with self._lock:
             self._last_failure_time = now
-            # Evict old failures outside the window
             self._failures = [t for t in self._failures if now - t < self._window]
             self._failures.append(now)
 
             if self._state == self.HALF_OPEN:
-                # Test call failed — reopen
                 self._state = self.OPEN
                 self._opened_at = now
                 self._total_trips += 1
@@ -173,29 +137,18 @@ class CircuitBreaker:
             self._opened_at = 0.0
 
 
-# Global circuit breaker — shared across all vehicle brains
 _circuit_breaker = CircuitBreaker(
-    failure_threshold=5,   # 5 erori consecutive in fereastra
-    window_seconds=30.0,   # fereastra de 30s
-    cooldown_seconds=30.0, # asteapta 30s inainte de retry
+    failure_threshold=5,
+    window_seconds=30.0,
+    cooldown_seconds=30.0,
 )
 
 
 def get_circuit_breaker_stats() -> dict:
-    """Returneaza statisticile circuit breaker-ului (pentru monitoring)."""
     return _circuit_breaker.get_stats()
 
 
-# ──────────────────────── AGENT MEMORY ────────────────────────
-
 class AgentMemory:
-    """
-    Memorie proprie per vehicul. Stocheaza:
-    - Istoricul deciziilor (ultimele N pasi)
-    - Near-misses (situatii periculoase evitate)
-    - Alerte V2X primite de la alti agenti
-    - Lectii invatate (patterns observate)
-    """
 
     def __init__(self, agent_id: str, max_decisions: int = 20, max_events: int = 10):
         self.agent_id = agent_id
@@ -212,7 +165,6 @@ class AgentMemory:
         self._wait_start: Optional[float] = None
 
     def record_decision(self, situation: str, decision: Dict[str, Any]):
-        """Salveaza o decizie in memoria agentului."""
         entry = {
             "step": len(self._decisions),
             "time": time.time(),
@@ -223,14 +175,12 @@ class AgentMemory:
         }
         self._decisions.append(entry)
 
-        # Track consecutive same actions
         if decision["action"] == self._last_action:
             self._consecutive_same_action += 1
         else:
             self._consecutive_same_action = 0
         self._last_action = decision["action"]
 
-        # Track action counts
         if decision["action"] == "stop":
             self._total_stops += 1
         elif decision["action"] == "yield":
@@ -238,7 +188,6 @@ class AgentMemory:
         elif decision["action"] == "brake":
             self._total_brakes += 1
 
-        # Track waiting time
         if decision["action"] in ("stop", "yield") and decision["speed"] < 0.5:
             if self._wait_start is None:
                 self._wait_start = time.time()
@@ -248,20 +197,17 @@ class AgentMemory:
                 self._wait_start = None
 
     def record_near_miss(self, other_id: str, ttc: float, risk: str):
-        """Inregistreaza o situatie periculoasa evitata."""
         self._near_misses.append({
             "time": time.time(),
             "other_vehicle": other_id,
             "ttc": ttc,
             "risk_level": risk,
         })
-        # Invata din near-miss
         lesson = f"Near-miss with {other_id} (TTC={ttc:.1f}s) — be more cautious approaching"
         if lesson not in list(self._lessons):
             self._lessons.append(lesson)
 
     def record_v2x_alert(self, from_id: str, alert_type: str, message: str):
-        """Inregistreaza o alerta V2X primita de la alt agent."""
         self._v2x_alerts.append({
             "time": time.time(),
             "from": from_id,
@@ -270,10 +216,8 @@ class AgentMemory:
         })
 
     def get_memory_context(self) -> str:
-        """Construieste un rezumat text al memoriei pentru includere in prompt."""
         parts = []
 
-        # Istoricul deciziilor recente (ultimele 5)
         if self._decisions:
             parts.append("MY RECENT DECISION HISTORY:")
             recent = list(self._decisions)[-5:]
@@ -283,7 +227,6 @@ class AgentMemory:
                     f"{d['action']} (speed={d['speed']:.1f}, reason={d['reason']})"
                 )
 
-        # Behavioral stats
         stats_parts = []
         if self._total_stops > 0:
             stats_parts.append(f"total_stops={self._total_stops}")
@@ -301,7 +244,6 @@ class AgentMemory:
         if stats_parts:
             parts.append(f"MY BEHAVIOR STATS: {', '.join(stats_parts)}")
 
-        # Near-misses
         if self._near_misses:
             parts.append("NEAR-MISS EVENTS I REMEMBER:")
             for nm in list(self._near_misses)[-3:]:
@@ -310,14 +252,12 @@ class AgentMemory:
                     f"(TTC={nm['ttc']:.1f}s, risk={nm['risk_level']})"
                 )
 
-        # V2X alerts
         recent_alerts = [a for a in self._v2x_alerts if time.time() - a["time"] < 5.0]
         if recent_alerts:
             parts.append("V2X ALERTS RECEIVED:")
             for a in recent_alerts[-3:]:
                 parts.append(f"  - From {a['from']}: [{a['type']}] {a['message']}")
 
-        # Lessons learned
         if self._lessons:
             parts.append("LESSONS I LEARNED:")
             for lesson in self._lessons:
@@ -326,7 +266,6 @@ class AgentMemory:
         return "\n".join(parts) if parts else ""
 
     def is_stuck(self) -> bool:
-        """Detecteaza daca agentul e blocat (asteapta prea mult)."""
         if self._wait_start and (time.time() - self._wait_start) > 10.0:
             return True
         if self._consecutive_same_action > 15 and self._last_action in ("stop", "yield"):
@@ -334,7 +273,6 @@ class AgentMemory:
         return False
 
     def get_stats(self) -> dict:
-        """Returneaza statistici pentru debug/frontend."""
         wait = self._time_waiting
         if self._wait_start:
             wait += time.time() - self._wait_start
@@ -351,7 +289,6 @@ class AgentMemory:
         }
 
     def reset(self):
-        """Reseteaza memoria (la restart simulare)."""
         self._decisions.clear()
         self._near_misses.clear()
         self._v2x_alerts.clear()
@@ -364,8 +301,6 @@ class AgentMemory:
         self._time_waiting = 0.0
         self._wait_start = None
 
-
-# ──────────────────────── SYSTEM PROMPT ────────────────────────
 
 SYSTEM_PROMPT = """You are an autonomous AI driving agent controlling a single vehicle in a V2X (Vehicle-to-Everything) intersection simulation.
 
@@ -422,8 +357,6 @@ You MUST respond ONLY with a valid JSON object (no markdown, no explanation):
 """
 
 
-# ──────────────────────── PROMPT BUILDER ────────────────────────
-
 def build_situation_prompt(
     agent_id: str,
     x: float, y: float,
@@ -439,7 +372,6 @@ def build_situation_prompt(
     memory_context: str = "",
     v2x_broadcasts: str = "",
 ) -> str:
-    """Construieste promptul cu situatia curenta + memorie + V2X."""
 
     parts = []
     parts.append(f"I am vehicle {agent_id}.")
@@ -464,18 +396,15 @@ def build_situation_prompt(
                 f"ttc={o.get('ttc', 'inf')}, "
                 f"their_decision={o.get('decision', 'unknown')}"
             )
-            # Add following info if this vehicle is ahead in our lane
             if o.get('ahead_in_my_lane'):
                 line += f", AHEAD_IN_MY_LANE=YES, gap={o.get('gap', '?')}m"
             parts.append(line)
     else:
         parts.append("\nNo other vehicles detected nearby.")
 
-    # V2X broadcast messages from other vehicles
     if v2x_broadcasts:
         parts.append(f"\n{v2x_broadcasts}")
 
-    # Memory context (past decisions, near-misses, lessons)
     if memory_context:
         parts.append(f"\n{memory_context}")
 
@@ -483,14 +412,7 @@ def build_situation_prompt(
     return "\n".join(parts)
 
 
-# ──────────────────────── LLM BRAIN ────────────────────────
-
 class LLMBrain:
-    """
-    Per-vehicle LLM brain cu MEMORIE PROPRIE.
-    Gestioneaza rate-limiting, memorie, perceptie V2X si fallback.
-    Foloseste Google Gemini API.
-    """
     def __init__(self, agent_id: str):
         self.agent_id = agent_id
         self._last_call_time = 0.0
@@ -498,7 +420,6 @@ class LLMBrain:
         self._call_count = 0
         self._error_count = 0
 
-        # Memorie proprie per agent
         self.memory = AgentMemory(agent_id)
 
     def decide(
@@ -515,19 +436,12 @@ class LLMBrain:
         distance_to_stop_line: float,
         v2x_broadcasts: str = "",
     ) -> Optional[Dict[str, Any]]:
-        """
-        Apeleaza LLM-ul si returneaza decizia.
-        Include memoria agentului si alertele V2X in prompt.
-        Returneaza None daca LLM nu e disponibil (se va folosi fallback-ul deterministic).
-        """
         if not LLM_ENABLED:
             return None
 
-        # Circuit breaker — daca LLM-ul a picat prea des, skip automat
         if not _circuit_breaker.allow_request():
             return self._last_decision
 
-        # Rate limiting
         now = time.time()
         if now - self._last_call_time < LLM_CALL_INTERVAL:
             return self._last_decision
@@ -538,17 +452,14 @@ class LLMBrain:
 
         self._last_call_time = now
 
-        # Construieste un summary al situatiei curente (pentru memorare)
         situation_summary = (
             f"pos=({x:.0f},{y:.0f}) spd={speed:.1f} risk={risk_level} "
             f"light={traffic_light or 'none'} near={len(others)} "
             f"dist_stop={distance_to_stop_line:.0f} inside={entered_intersection}"
         )
 
-        # Obtine contextul memoriei
         memory_context = self.memory.get_memory_context()
 
-        # Inregistreaza near-misses din datele curente
         for o in others:
             ttc_str = o.get("ttc", "inf")
             try:
@@ -587,13 +498,11 @@ class LLMBrain:
             )
 
             text = response.text.strip()
-            # Parse JSON — handle markdown wrapping
             if text.startswith("```"):
                 text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
             decision = json.loads(text)
 
-            # Validate
             action = decision.get("action", "go")
             if action not in ("go", "yield", "brake", "stop"):
                 action = "go"
@@ -612,7 +521,6 @@ class LLMBrain:
             self._call_count += 1
             _circuit_breaker.record_success()
 
-            # Salveaza decizia in memorie
             self.memory.record_decision(situation_summary, result)
 
             logger.debug(f"[{self.agent_id}] LLM: {result}")
@@ -641,10 +549,8 @@ class LLMBrain:
         }
 
     def reset(self):
-        """Reseteaza brain-ul la restart simulare."""
         self._last_call_time = 0.0
         self._last_decision = None
         self._call_count = 0
         self._error_count = 0
         self.memory.reset()
-
