@@ -1,24 +1,24 @@
 # V2X Intersection Safety Agent
 
-**Sistem cooperativ de siguranță la intersecții cu vizibilitate redusă, bazat pe agenți AI autonomi cu comunicare Vehicle-to-Everything (V2X).**
+**Cooperative intersection safety system for low-visibility intersections, based on autonomous AI agents with Vehicle-to-Everything (V2X) communication.**
 
-> Proiect realizat la hackathon — echipa **Team MVP**
+> Project developed at a hackathon — team **Team MVP**
 
 ---
 
-## 🎯 Problemă
+## Problem
 
-Multe accidente se produc la intersecții cu vizibilitate redusă, unde un șofer nu poate vedea un vehicul care vine din lateral din cauza unui zid, TIR parcat sau unghi mort. Senzorii unui singur vehicul nu pot rezolva această problemă.
+Many accidents occur at low-visibility intersections, where a driver cannot see a vehicle approaching from the side due to a wall, parked truck, or blind spot. The sensors of a single vehicle cannot solve this problem.
 
-## 💡 Soluție
+## Solution
 
-Fiecare vehicul este modelat ca un **agent AI autonom** care:
-- Are **memorie proprie** (istoric decizii, near-misses, lecții învățate)
-- **Percepe mediul** prin mesaje V2X (nu doar prin senzori proprii)
-- Ia **decizii autonome** folosind un LLM (Google Gemini) sau fallback adaptiv
-- **Cooperează** cu ceilalți agenți pentru a preveni coliziunile
+Each vehicle is modeled as an **autonomous AI agent** that:
+- Has its own **memory** (decision history, near-misses, lessons learned)
+- **Perceives the environment** through V2X messages (not just its own sensors)
+- Makes **autonomous decisions** using an LLM (Google Gemini) or adaptive fallback
+- **Cooperates** with other agents to prevent collisions
 
-## 🏗️ Arhitectură
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -36,7 +36,7 @@ Fiecare vehicul este modelat ca un **agent AI autonom** care:
 │  │          Simulation Manager                       │  │
 │  │  ┌───────────┐ ┌───────────┐ ┌─────────────────┐ │  │
 │  │  │ Vehicle   │ │ Vehicle   │ │  Infrastructure  │ │  │
-│  │  │ Agent A   │ │ Agent B   │ │  Agent (Semafor) │ │  │
+│  │  │ Agent A   │ │ Agent B   │ │  (Traffic Light) │ │  │
 │  │  │ ┌───────┐ │ │ ┌───────┐ │ │                  │ │  │
 │  │  │ │LLM    │ │ │ │LLM    │ │ │  Phase control   │ │  │
 │  │  │ │Brain  │ │ │ │Brain  │ │ │  Emergency detect │ │  │
@@ -60,129 +60,129 @@ Fiecare vehicul este modelat ca un **agent AI autonom** care:
 └─────────────────────────────────────────────────────────┘
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
-### Varianta 1: Docker Compose (recomandat)
+### Option 1: Docker Compose (recommended)
 ```bash
-# Copiază și configurează .env
+# Copy and configure .env
 cp .env.example .env
-# Editează .env — adaugă GEMINI_API_KEY
+# Edit .env — add GEMINI_API_KEY
 
-# Pornește
+# Start
 docker compose up --build
 
-# Deschide http://localhost:3000
+# Open http://localhost:3000
 ```
 
-### Varianta 2: Manual
+### Option 2: Manual
 ```bash
 # Backend
 cd backend
 pip install -r requirements.txt
 python main.py
 
-# Frontend (alt terminal)
+# Frontend (another terminal)
 cd frontend
 npm install
 npm run dev
 
-# Deschide http://localhost:3000
+# Open http://localhost:3000
 ```
 
-### Configurare Cheie API
+### API Key Configuration
 ```bash
 # Linux/Mac
-export GEMINI_API_KEY=cheia-ta-de-la-google
+export GEMINI_API_KEY=your-google-api-key
 
 # PowerShell
-$env:GEMINI_API_KEY="cheia-ta-de-la-google"
+$env:GEMINI_API_KEY="your-google-api-key"
 
-# Sau editează .env
+# Or edit .env
 ```
 
-## 🎮 Scenarii Demonstrative
+## Demo Scenarios
 
-| # | Scenariu | Vehicule | Descriere |
+| # | Scenario | Vehicles | Description |
 |---|---------|----------|-----------|
-| 1 | Blind Intersection | 2 | Intersecție cu vizibilitate redusă, fără semafor |
-| 2 | Right of Way (3V) | 3 | 3 vehicule — negociere prioritate de dreapta |
-| 3 | Right of Way (4V) | 4 | 4 vehicule din toate direcțiile, fără semafor |
-| 4 | Traffic Light (4V) | 4 | 4 vehicule cu semafor inteligent |
-| 5 | Ambulance + Light | 2 | Ambulanță cu preemptare semafor |
-| 6 | Ambulance No Light | 2 | Ambulanță fără semafor — prioritate V2X |
+| 1 | Blind Intersection | 2 | Low-visibility intersection, no traffic light |
+| 2 | Right of Way (3V) | 3 | 3 vehicles — right-of-way priority negotiation |
+| 3 | Right of Way (4V) | 4 | 4 vehicles from all directions, no traffic light |
+| 4 | Traffic Light (4V) | 4 | 4 vehicles with intelligent traffic light |
+| 5 | Ambulance + Light | 2 | Ambulance with traffic light preemption |
+| 6 | Ambulance No Light | 2 | Ambulance without traffic light — V2X priority |
 
-**Keyboard shortcuts:** Tastele `1`–`6` pornesc scenariile, `S` oprește, `R` restartează.
+**Keyboard shortcuts:** Keys `1`–`6` start scenarios, `S` stops, `R` restarts.
 
-## 🧠 Cum Funcționează AI-ul
+## How the AI Works
 
-Fiecare vehicul are un **LLM Brain** independent:
+Each vehicle has an independent **LLM Brain**:
 
-1. **Percepție**: primește poziția, viteza și intențiile celorlalți prin V2X
-2. **Memorie**: stochează istoric decizii, near-misses, lecții învățate
-3. **Decizie**: construiește un prompt cu situația curentă + memorie + alerte V2X
-4. **Acțiune**: LLM-ul răspunde cu `{action, speed, reason}` în JSON
-5. **Safety Override**: regulile fizice (semafor roșu, inside intersection) au prioritate
-6. **Fallback Adaptiv**: dacă LLM-ul pică, se folosesc reguli adaptive cu memorie
+1. **Perception**: receives position, speed and intentions of others via V2X
+2. **Memory**: stores decision history, near-misses, lessons learned
+3. **Decision**: builds a prompt with the current situation + memory + V2X alerts
+4. **Action**: LLM responds with `{action, speed, reason}` in JSON
+5. **Safety Override**: physical rules (red light, inside intersection) take priority
+6. **Adaptive Fallback**: if the LLM fails, adaptive rules with memory are used
 
 ### Circuit Breaker
-- Dacă API-ul Gemini generează 5+ erori în 30s → LLM dezactivat automat
-- După 30s cooldown → test un singur apel → reactivare dacă reușește
-- Vehiculele nu sunt blocate — trec instant pe fallback
+- If the Gemini API generates 5+ errors in 30s → LLM automatically disabled
+- After 30s cooldown → test a single call → re-enabled if successful
+- Vehicles are not blocked — they instantly switch to fallback
 
-## 🔒 Securitate
+## Security
 
-| Feature | Implementare |
+| Feature | Implementation |
 |---------|-------------|
-| Integritate mesaje | HMAC-SHA256 pe fiecare mesaj V2X |
-| Validare date | Range checks, NaN/Inf, tipuri corecte |
-| Agenți inactivi | Detectare automată + cleanup (5s timeout) |
-| Anti-flood V2X | Rate limiting pe broadcast per agent |
-| Anti-flood REST | Rate limiting per IP per minut |
-| Autentificare | Token Bearer pe REST + query param pe WebSocket |
-| Sanitizare output | Date curatate înainte de trimitere la frontend |
-| Circuit breaker | Protecție automată dacă LLM API pică |
+| Message integrity | HMAC-SHA256 on every V2X message |
+| Data validation | Range checks, NaN/Inf, correct types |
+| Inactive agents | Automatic detection + cleanup (5s timeout) |
+| V2X anti-flood | Rate limiting on broadcast per agent |
+| REST anti-flood | Rate limiting per IP per minute |
+| Authentication | Token Bearer on REST + query param on WebSocket |
+| Output sanitization | Data cleaned before sending to frontend |
+| Circuit breaker | Automatic protection if LLM API fails |
 
-## 📊 Telemetrie și Rapoarte
+## Telemetry and Reports
 
-Endpoint `GET /telemetry/report` returnează:
-- Durata sesiunii
-- Coliziuni prevenite
-- Throughput vehicule/minut
-- Breakdown riscuri pe tip
-- Scor de cooperare (0–100)
+Endpoint `GET /telemetry/report` returns:
+- Session duration
+- Collisions prevented
+- Vehicle throughput/minute
+- Risk breakdown by type
+- Cooperation score (0–100)
 
-## ♿ Accesibilitate
+## Accessibility
 
-- **Keyboard shortcuts**: control complet fără mouse
-- **High contrast**: interfață dark cu culori clar distincte
+- **Keyboard shortcuts**: full control without mouse
+- **High contrast**: dark interface with clearly distinct colors
 
-## 📁 Structura Proiectului
+## Project Structure
 
 ```
 ├── backend/
-│   ├── main.py                 # Server FastAPI + auth + rate limiting
-│   ├── simulation.py           # Manager scenarii + lifecycle
-│   ├── agents.py               # VehicleAgent cu LLM brain
-│   ├── llm_brain.py            # LLM + memorie + circuit breaker
-│   ├── v2x_channel.py          # Canal V2X securizat (HMAC)
-│   ├── v2x_security.py         # Securitate: validare, stale, rate limit
-│   ├── collision_detector.py   # Detecție TTC
-│   ├── priority_negotiation.py # Reguli prioritate
-│   ├── infrastructure_agent.py # Semafor inteligent V2I
-│   ├── background_traffic.py   # Trafic background pe grid
-│   ├── telemetry.py            # Colector telemetrie + rapoarte
-│   └── tests/                  # Teste unitare
+│   ├── main.py                 # FastAPI server + auth + rate limiting
+│   ├── simulation.py           # Scenario manager + lifecycle
+│   ├── agents.py               # VehicleAgent with LLM brain
+│   ├── llm_brain.py            # LLM + memory + circuit breaker
+│   ├── v2x_channel.py          # Secured V2X channel (HMAC)
+│   ├── v2x_security.py         # Security: validation, stale, rate limit
+│   ├── collision_detector.py   # TTC detection
+│   ├── priority_negotiation.py # Priority rules
+│   ├── infrastructure_agent.py # Intelligent traffic light V2I
+│   ├── background_traffic.py   # Background traffic on grid
+│   ├── telemetry.py            # Telemetry collector + reports
+│   └── tests/                  # Unit tests
 │       ├── test_priority.py
 │       ├── test_collision.py
 │       └── test_security.py
 ├── frontend/
 │   └── src/
-│       ├── App.jsx             # Layout principal
+│       ├── App.jsx             # Main layout
 │       ├── components/
-│       │   ├── IntersectionMap.jsx  # Hartă 2D canvas
-│       │   ├── VehicleStatus.jsx    # Status vehicule
-│       │   ├── RiskAlert.jsx        # Alerte coliziune
-│       │   └── V2XLog.jsx           # Log comunicare V2X
+│       │   ├── IntersectionMap.jsx  # 2D canvas map
+│       │   ├── VehicleStatus.jsx    # Vehicle status
+│       │   ├── RiskAlert.jsx        # Collision alerts
+│       │   └── V2XLog.jsx           # V2X communication log
 │       └── hooks/
 │           ├── useWebSocket.js      # WebSocket + API
 │           └── useKeyboardShortcuts.js
@@ -191,19 +191,19 @@ Endpoint `GET /telemetry/report` returnează:
 └── README.md
 ```
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 - **Backend**: Python 3.11, FastAPI, Uvicorn, Google Gemini AI
 - **Frontend**: React 18, Vite, Tailwind CSS, Lucide Icons
-- **Comunicare**: WebSocket (timp real) + REST API
-- **Securitate**: HMAC-SHA256, Token Auth, Rate Limiting
+- **Communication**: WebSocket (real-time) + REST API
+- **Security**: HMAC-SHA256, Token Auth, Rate Limiting
 - **Deploy**: Docker + Docker Compose
 
-## 📈 Scalabilitate
+## Scalability
 
-- Suport 5+ vehicule simultane (demo + background traffic)
-- Grid cu intersecții multiple conectate
-- Arhitectură pregătită pentru Redis state-store
-- Circuit breaker pentru reziliența LLM
-- Rate limiting per IP pentru protecție la flood
+- Support for 5+ simultaneous vehicles (demo + background traffic)
+- Grid with multiple connected intersections
+- Architecture ready for Redis state-store
+- Circuit breaker for LLM resilience
+- Rate limiting per IP for flood protection
 
