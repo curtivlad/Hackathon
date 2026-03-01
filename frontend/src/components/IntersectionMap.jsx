@@ -843,10 +843,11 @@ export default function IntersectionMap({
   grid = null, fullScreen = false,
   externalZoom = null, onMinZoom = null, onZoomChange = null,
   trafficLightIntersections = [],
+  activeMode = 'SCENARIO',
 }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
-  const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 0.7, canvasW: 800, canvasH: 600 });
+  const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 0.6, canvasW: 800, canvasH: 600 });
   const dragRef = useRef({ dragging: false, lastX: 0, lastY: 0 });
   const gridData = grid || DEFAULT_GRID;
 
@@ -946,6 +947,9 @@ export default function IntersectionMap({
   const cameraRef = useRef(camera);
   useEffect(() => { cameraRef.current = camera; }, [camera]);
 
+  const activeModeRef = useRef(activeMode);
+  useEffect(() => { activeModeRef.current = activeMode; }, [activeMode]);
+
   const gridDataRef = useRef(gridData);
   useEffect(() => { gridDataRef.current = gridData; }, [gridData]);
 
@@ -985,7 +989,9 @@ export default function IntersectionMap({
 
       ctx.clearRect(0, 0, cam.canvasW, cam.canvasH);
       drawCityGrid(ctx, cam, gd);
-      drawDemoHighlight(ctx, cam, gd.demo_intersection, gd);
+      if (activeModeRef.current !== 'CITY') {
+        drawDemoHighlight(ctx, cam, gd.demo_intersection, gd);
+      }
       drawCollisionZone(ctx, cam, curPairs, interpolatedAgents);
 
       const bgV = [], demoV = [], drunkV = [];

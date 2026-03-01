@@ -149,7 +149,7 @@ function VehicleCardCompact({ agent }) {
   );
 }
 
-export default function VehicleStatus({ agents = {}, infrastructure = {} }) {
+export default function VehicleStatus({ agents = {}, infrastructure = {}, activeMode = 'SCENARIO' }) {
   const vehicles = Object.values(agents).filter(
     a => a.agent_type === "vehicle" && !a.agent_id?.startsWith("BG_") && !a.agent_id?.startsWith("AMBULANCE_") && !a.agent_id?.startsWith("POLICE_") && !a.is_drunk
   );
@@ -162,16 +162,43 @@ export default function VehicleStatus({ agents = {}, infrastructure = {} }) {
 
   return (
     <div>
-      <h3 style={{ color: "#aaa", fontSize: "12px", fontFamily: "monospace", marginBottom: "10px", letterSpacing: "2px" }}>
-        DEMO VEHICLES ({vehicles.length})
-      </h3>
+      {activeMode === 'SCENARIO' && (
+        <>
+          <h3 style={{ color: "#aaa", fontSize: "12px", fontFamily: "monospace", marginBottom: "10px", letterSpacing: "2px" }}>
+            DEMO VEHICLES ({vehicles.length})
+          </h3>
+          {vehicles.length === 0 ? (
+            <div style={{ color: "#555", fontFamily: "monospace", fontSize: "12px" }}>
+              No active vehicles. Start a scenario.
+            </div>
+          ) : (
+            vehicles.map(v => <VehicleCard key={v.agent_id} agent={v} />)
+          )}
+        </>
+      )}
 
-      {vehicles.length === 0 ? (
-        <div style={{ color: "#555", fontFamily: "monospace", fontSize: "12px" }}>
-          No active vehicles. Start a scenario.
-        </div>
-      ) : (
-        vehicles.map(v => <VehicleCard key={v.agent_id} agent={v} />)
+      {activeMode === 'CITY' && (
+        <>
+          <h3 style={{ color: "#aaa", fontSize: "12px", fontFamily: "monospace", marginBottom: "10px", letterSpacing: "2px" }}>
+            BACKGROUND TRAFFIC ({bgVehicles.length})
+          </h3>
+          {bgVehicles.length === 0 ? (
+            <div style={{ color: "#555", fontFamily: "monospace", fontSize: "12px" }}>
+              No active vehicles. Toggle background traffic.
+            </div>
+          ) : (
+            bgVehicles.map(v => <VehicleCardCompact key={v.agent_id} agent={v} />)
+          )}
+        </>
+      )}
+
+      {activeMode === 'CITY' && vehicles.length > 0 && (
+        <>
+          <h3 style={{ color: "#aaa", fontSize: "12px", fontFamily: "monospace", marginTop: "16px", marginBottom: "10px", letterSpacing: "2px" }}>
+            VEHICLES ({vehicles.length})
+          </h3>
+          {vehicles.map(v => <VehicleCard key={v.agent_id} agent={v} />)}
+        </>
       )}
 
       {drunkVehicles.length > 0 && (
@@ -183,7 +210,7 @@ export default function VehicleStatus({ agents = {}, infrastructure = {} }) {
         </>
       )}
 
-      {bgVehicles.length > 0 && (
+      {activeMode === 'SCENARIO' && bgVehicles.length > 0 && (
         <>
           <h3 style={{ color: "#666", fontSize: "11px", fontFamily: "monospace", marginTop: "16px", marginBottom: "8px", letterSpacing: "2px" }}>
             BACKGROUND TRAFFIC ({bgVehicles.length})

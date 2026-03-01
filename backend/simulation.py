@@ -36,6 +36,19 @@ class SimulationManager:
             self.stop()
         if bg_traffic.active:
             bg_traffic.stop()
+        self._clear_vehicles()
+        if self._use_traffic_light:
+            self.infrastructure.stop()
+            channel.remove_agent(self.infrastructure.agent_id)
+        self._use_traffic_light = False
+        self.active_scenario = None
+        channel.clear_all()
+        self.stats = {
+            "collisions_prevented": 0,
+            "total_vehicles": 0,
+            "elapsed_time": 0.0,
+        }
+        self._start_time = None
         self.mode = mode
 
 

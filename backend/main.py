@@ -383,6 +383,45 @@ def spawn_police_car():
     return {"status": "spawned", "agent_id": agent_id, "x": start_x, "y": start_y, "direction": direction}
 
 
+@app.post("/simulation/spawn-ambulance", dependencies=[Depends(verify_token), Depends(rate_limit)])
+def spawn_ambulance():
+    import random
+    from agents import VehicleAgent
+    from background_traffic import _build_route, _ALL_ROUTE_KEYS
+
+    route_key = random.choice(_ALL_ROUTE_KEYS)
+    waypoints, direction = _build_route(route_key)
+    if len(waypoints) < 2:
+        return {"error": "Could not find a valid route"}
+
+    start_x, start_y = waypoints[0]
+    speed = random.uniform(18.0, 22.0)
+
+    if not hasattr(spawn_ambulance, '_counter'):
+        spawn_ambulance._counter = 0
+    spawn_ambulance._counter += 1
+    agent_id = f"AMBULANCE_{spawn_ambulance._counter:03d}"
+
+    vehicle = VehicleAgent(
+        agent_id=agent_id,
+        start_x=start_x,
+        start_y=start_y,
+        direction=direction,
+        initial_speed=speed,
+        target_speed=speed,
+        intention="straight",
+        is_emergency=True,
+        waypoints=waypoints[1:],
+    )
+
+    simulation.vehicles.append(vehicle)
+    simulation.stats["total_vehicles"] += 1
+    vehicle.start()
+
+    logger.info(f"[AMBULANCE] Spawned {agent_id} at ({start_x:.0f}, {start_y:.0f}) dir={direction}")
+    return {"status": "spawned", "agent_id": agent_id, "x": start_x, "y": start_y, "direction": direction}
+
+
 @app.post("/background-traffic/start", dependencies=[Depends(verify_token), Depends(rate_limit)])
 def start_bg_traffic():
     bg_traffic.start()
