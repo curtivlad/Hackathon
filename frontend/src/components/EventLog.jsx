@@ -100,7 +100,7 @@ export default function EventLog({ collisionPairs = [], agents = {} }) {
               >
                 <div className="flex items-center gap-2">
                   <span className="font-bold">
-                    {ev.risk === "collision" ? "⚠" : "⚡"}
+                    {ev.risk === "collision" ? "CRIT" : "HIGH"}
                   </span>
                   <span>
                     {ev.agent1} ↔ {ev.agent2}

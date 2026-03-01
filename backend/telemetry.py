@@ -7,7 +7,7 @@ import logging
 import sqlite3
 from collections import defaultdict
 from typing import List, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger("telemetry")
 
@@ -220,7 +220,7 @@ class TelemetryCollector:
             VALUES (?, ?, ?, ?, ?)
             """,
             (
-                datetime.now().isoformat(),
+                datetime.now(timezone(timedelta(hours=2))).isoformat(),
                 report["session_duration_s"],
                 report["collisions_prevented"],
                 report["throughput_vehicles_per_min"],
