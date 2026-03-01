@@ -80,10 +80,17 @@ function drawCityGrid(ctx, camera, grid) {
   const minY = Math.min(...yCoords);
   const maxY = Math.max(...yCoords);
 
+  const isSingleIntersection = xCoords.length === 1 && yCoords.length === 1;
+  const roadExtend = isSingleIntersection ? (grid_spacing || 200) * 0.65 : 0;
+  const roadMinX = minX - roadExtend;
+  const roadMaxX = maxX + roadExtend;
+  const roadMinY = minY - roadExtend;
+  const roadMaxY = maxY + roadExtend;
+
   const mapMargin = 12;
   const borderRadius = 18 * camera.zoom;
-  const mapTL = worldToScreen(minX - HALF_ROAD, maxY + HALF_ROAD, camera);
-  const mapBR = worldToScreen(maxX + HALF_ROAD, minY - HALF_ROAD, camera);
+  const mapTL = worldToScreen(roadMinX - HALF_ROAD, roadMaxY + HALF_ROAD, camera);
+  const mapBR = worldToScreen(roadMaxX + HALF_ROAD, roadMinY - HALF_ROAD, camera);
   const mapX = mapTL.sx - mapMargin;
   const mapY = mapTL.sy - mapMargin;
   const mapW = mapBR.sx - mapTL.sx + mapMargin * 2;
@@ -140,8 +147,8 @@ function drawCityGrid(ctx, camera, grid) {
   for (const ix of xCoords) {
     const left = worldToScreen(ix - HALF_ROAD, 0, camera);
     const right = worldToScreen(ix + HALF_ROAD, 0, camera);
-    const top = worldToScreen(0, maxY + HALF_ROAD, camera);
-    const bot = worldToScreen(0, minY - HALF_ROAD, camera);
+    const top = worldToScreen(0, roadMaxY + HALF_ROAD, camera);
+    const bot = worldToScreen(0, roadMinY - HALF_ROAD, camera);
 
     ctx.fillStyle = COLORS.road;
     ctx.fillRect(left.sx, top.sy, right.sx - left.sx, bot.sy - top.sy);
@@ -155,14 +162,14 @@ function drawCityGrid(ctx, camera, grid) {
 
     ctx.strokeStyle = COLORS.laneDivider;
     ctx.lineWidth = Math.max(1, 2 * camera.zoom);
-    drawSegmentedDashes(ctx, camera, ix, true, minY - HALF_ROAD, maxY + HALF_ROAD, yCoords);
+    drawSegmentedDashes(ctx, camera, ix, true, roadMinY - HALF_ROAD, roadMaxY + HALF_ROAD, yCoords);
   }
 
   for (const iy of yCoords) {
     const top = worldToScreen(0, iy + HALF_ROAD, camera);
     const bot = worldToScreen(0, iy - HALF_ROAD, camera);
-    const left = worldToScreen(minX - HALF_ROAD, 0, camera);
-    const right = worldToScreen(maxX + HALF_ROAD, 0, camera);
+    const left = worldToScreen(roadMinX - HALF_ROAD, 0, camera);
+    const right = worldToScreen(roadMaxX + HALF_ROAD, 0, camera);
 
     ctx.fillStyle = COLORS.road;
     ctx.fillRect(left.sx, top.sy, right.sx - left.sx, bot.sy - top.sy);
@@ -176,7 +183,7 @@ function drawCityGrid(ctx, camera, grid) {
 
     ctx.strokeStyle = COLORS.laneDivider;
     ctx.lineWidth = Math.max(1, 2 * camera.zoom);
-    drawSegmentedDashes(ctx, camera, iy, false, minX - HALF_ROAD, maxX + HALF_ROAD, xCoords);
+    drawSegmentedDashes(ctx, camera, iy, false, roadMinX - HALF_ROAD, roadMaxX + HALF_ROAD, xCoords);
   }
 
   ctx.fillStyle = COLORS.road;
@@ -190,7 +197,11 @@ function drawCityGrid(ctx, camera, grid) {
   }
 
   if (camera.zoom > 0.3) {
-    drawBuildings(ctx, camera, xCoords, yCoords);
+    if (isSingleIntersection) {
+      drawSingleIntersectionSidewalks(ctx, camera, xCoords[0], yCoords[0], roadExtend);
+    } else {
+      drawBuildings(ctx, camera, xCoords, yCoords);
+    }
   }
 
   const bounds = { minX, maxX, minY, maxY };
@@ -205,6 +216,88 @@ function drawCityGrid(ctx, camera, grid) {
   ctx.beginPath();
   ctx.roundRect(mapX, mapY, mapW, mapH, clampedRadius + mapMargin * 0.3);
   ctx.stroke();
+}
+
+function drawSingleIntersectionSidewalks(ctx, camera, cx, cy, extend) {
+  const pad = 8;
+  const sidewalkColor = "#2a2a2a";
+  const sidewalkEdge = "#3a3a3a";
+  const curbColor = "#444";
+
+  const quadrants = [
+    { left: cx + HALF_ROAD, right: cx + extend + HALF_ROAD, bottom: cy + HALF_ROAD, top: cy + extend + HALF_ROAD },
+    { left: cx - extend - HALF_ROAD, right: cx - HALF_ROAD, bottom: cy + HALF_ROAD, top: cy + extend + HALF_ROAD },
+    { left: cx + HALF_ROAD, right: cx + extend + HALF_ROAD, bottom: cy - extend - HALF_ROAD, top: cy - HALF_ROAD },
+    { left: cx - extend - HALF_ROAD, right: cx - HALF_ROAD, bottom: cy - extend - HALF_ROAD, top: cy - HALF_ROAD },
+  ];
+
+  for (const q of quadrants) {
+    const tl = worldToScreen(q.left, q.top, camera);
+    const br = worldToScreen(q.right, q.bottom, camera);
+    const w = br.sx - tl.sx;
+    const h = br.sy - tl.sy;
+
+    ctx.fillStyle = sidewalkColor;
+    ctx.fillRect(tl.sx, tl.sy, w, h);
+
+    ctx.strokeStyle = sidewalkEdge;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(tl.sx, tl.sy, w, h);
+
+    if (camera.zoom > 0.5) {
+      const padPx = pad * camera.zoom;
+      ctx.strokeStyle = curbColor;
+      ctx.lineWidth = Math.max(1, 1.5 * camera.zoom);
+      ctx.beginPath();
+      ctx.moveTo(tl.sx + padPx, tl.sy);
+      ctx.lineTo(tl.sx + padPx, tl.sy + h);
+      ctx.moveTo(br.sx - padPx, tl.sy);
+      ctx.lineTo(br.sx - padPx, tl.sy + h);
+      ctx.moveTo(tl.sx, tl.sy + padPx);
+      ctx.lineTo(tl.sx + w, tl.sy + padPx);
+      ctx.moveTo(tl.sx, br.sy - padPx);
+      ctx.lineTo(tl.sx + w, br.sy - padPx);
+      ctx.stroke();
+
+      const tileSize = 8 * camera.zoom;
+      if (tileSize > 3) {
+        ctx.strokeStyle = "rgba(255,255,255,0.04)";
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        for (let tx = tl.sx; tx < tl.sx + padPx; tx += tileSize) {
+          ctx.moveTo(tx, tl.sy);
+          ctx.lineTo(tx, tl.sy + h);
+        }
+        for (let ty = tl.sy; ty < tl.sy + h; ty += tileSize) {
+          ctx.moveTo(tl.sx, ty);
+          ctx.lineTo(tl.sx + padPx, ty);
+        }
+        for (let tx = br.sx - padPx; tx < br.sx; tx += tileSize) {
+          ctx.moveTo(tx, tl.sy);
+          ctx.lineTo(tx, tl.sy + h);
+        }
+        for (let ty = tl.sy; ty < tl.sy + h; ty += tileSize) {
+          ctx.moveTo(br.sx - padPx, ty);
+          ctx.lineTo(br.sx, ty);
+        }
+        for (let tx = tl.sx + padPx; tx < br.sx - padPx; tx += tileSize) {
+          ctx.moveTo(tx, tl.sy);
+          ctx.lineTo(tx, tl.sy + padPx);
+          ctx.moveTo(tx, br.sy - padPx);
+          ctx.lineTo(tx, br.sy);
+        }
+        for (let ty = tl.sy; ty < tl.sy + padPx; ty += tileSize) {
+          ctx.moveTo(tl.sx + padPx, ty);
+          ctx.lineTo(br.sx - padPx, ty);
+        }
+        for (let ty = br.sy - padPx; ty < br.sy; ty += tileSize) {
+          ctx.moveTo(tl.sx + padPx, ty);
+          ctx.lineTo(br.sx - padPx, ty);
+        }
+        ctx.stroke();
+      }
+    }
+  }
 }
 
 function drawBuildings(ctx, camera, xCoords, yCoords) {
@@ -356,10 +449,11 @@ function drawIntersectionDetail(ctx, camera, ix, iy, bounds) {
   const lineThick = 0.6;
   const numStrips = Math.max(2, Math.floor((ROAD_WIDTH * camera.zoom) / (8 * camera.zoom)));
 
-  const hasTop = !bounds || iy < bounds.maxY;
-  const hasBottom = !bounds || iy > bounds.minY;
-  const hasLeft = !bounds || ix > bounds.minX;
-  const hasRight = !bounds || ix < bounds.maxX;
+  const singleNode = bounds && bounds.minX === bounds.maxX && bounds.minY === bounds.maxY;
+  const hasTop = !bounds || singleNode || iy < bounds.maxY;
+  const hasBottom = !bounds || singleNode || iy > bounds.minY;
+  const hasLeft = !bounds || singleNode || ix > bounds.minX;
+  const hasRight = !bounds || singleNode || ix < bounds.maxX;
 
   const lineColor = "rgba(255,255,255,0.7)";
   const stripColor = "rgba(255,255,255,0.85)";
@@ -430,7 +524,7 @@ function drawIntersectionDetail(ctx, camera, ix, iy, bounds) {
   }
 }
 
-function drawDemoHighlight(ctx, camera, demo) {
+function drawDemoHighlight(ctx, camera, demo, grid) {
   if (!demo) return;
   const center = worldToScreen(demo.x, demo.y, camera);
   const r = 80 * camera.zoom;
@@ -445,8 +539,16 @@ function drawDemoHighlight(ctx, camera, demo) {
   if (camera.zoom > 0.5) {
     ctx.fillStyle = "rgba(0, 230, 118, 0.5)";
     ctx.font = `bold ${Math.max(9, 11 * camera.zoom)}px monospace`;
-    ctx.textAlign = "center";
-    ctx.fillText("DEMO", center.sx, center.sy - r - 4);
+    const isSingle = grid && grid.intersections && grid.intersections.length === 1;
+    if (isSingle) {
+      const extend = (grid.grid_spacing || 200) * 0.65;
+      const topEdge = worldToScreen(demo.x, demo.y + extend + HALF_ROAD, camera);
+      ctx.textAlign = "center";
+      ctx.fillText("DEMO", topEdge.sx, topEdge.sy - 14);
+    } else {
+      ctx.textAlign = "center";
+      ctx.fillText("DEMO", center.sx, center.sy - r - 4);
+    }
   }
 }
 
@@ -776,7 +878,7 @@ export default function IntersectionMap({
 
   const computeMinZoom = useCallback(() => {
     const g = gridData;
-    if (!g.intersections || g.intersections.length < 2) return 0.15;
+    if (!g.intersections || g.intersections.length < 2) return 0.8;
     const xs = g.intersections.map(i => i.x);
     const ys = g.intersections.map(i => i.y);
     const worldW = (Math.max(...xs) - Math.min(...xs)) + g.grid_spacing * 1.2;
@@ -883,7 +985,7 @@ export default function IntersectionMap({
 
       ctx.clearRect(0, 0, cam.canvasW, cam.canvasH);
       drawCityGrid(ctx, cam, gd);
-      drawDemoHighlight(ctx, cam, gd.demo_intersection);
+      drawDemoHighlight(ctx, cam, gd.demo_intersection, gd);
       drawCollisionZone(ctx, cam, curPairs, interpolatedAgents);
 
       const bgV = [], demoV = [], drunkV = [];
@@ -901,7 +1003,7 @@ export default function IntersectionMap({
 
       if (curInfra?.phase) drawTrafficLights(ctx, cam, curInfra.phase, gd.demo_intersection);
 
-      if (curTLI && curTLI.length > 0) {
+      if (curTLI && curTLI.length > 0 && gd.intersections && gd.intersections.length > 1) {
         for (const tli of curTLI) {
           if (curInfra?.phase && gd.demo_intersection &&
               tli.x === gd.demo_intersection.x && tli.y === gd.demo_intersection.y) continue;

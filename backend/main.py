@@ -208,7 +208,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(
 VALID_SCENARIOS = frozenset([
     "emergency_vehicle", "emergency_vehicle_no_lights",
     "right_of_way", "multi_vehicle_traffic_light",
-    "drunk_driver",
+    "drunk_driver", "drunk_driver_police",
 ])
 
 

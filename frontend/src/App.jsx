@@ -45,6 +45,7 @@ function App() {
   const handleSelectMode = async (mode) => {
     await initMode(mode);
     setActiveMode(mode);
+    setZoom(mode === 'SCENARIO' ? 2.15 : 0.7);
     setView('simulation');
   };
 
@@ -143,27 +144,29 @@ function App() {
             </div>
             <div className="flex gap-3 text-xs font-mono">
               <span className="text-white">Demo: <strong>{demoAgents}</strong></span>
-              <span className="text-neutral-500">BG: <strong>{bgAgents}</strong></span>
+              {activeMode === 'CITY' && <span className="text-neutral-500">BG: <strong>{bgAgents}</strong></span>}
               {drunkAgents > 0 && <span className="text-pink-400">Drunk: <strong>{drunkAgents}</strong></span>}
             </div>
           </div>
 
-          <button
-            onClick={toggleBackgroundTraffic}
-            className={`w-full mb-4 transition px-4 py-2.5 rounded-lg text-sm font-medium border flex justify-between items-center group ${
-              backgroundTrafficActive
-                ? 'bg-green-900/30 border-green-500/50 text-green-400 hover:bg-green-900/50'
-                : 'bg-[#1a1a1a] border-neutral-700 text-neutral-300 hover:bg-neutral-800'
-            }`}
-          >
-            <span className="flex items-center gap-2">
-              <Navigation size={14} />
-              <span>Background Traffic</span>
-            </span>
-            <span className={`text-xs font-bold ${backgroundTrafficActive ? 'text-green-400' : 'text-neutral-500'}`}>
-              {backgroundTrafficActive ? 'ON' : 'OFF'}
-            </span>
-          </button>
+          {activeMode === 'CITY' && (
+            <button
+              onClick={toggleBackgroundTraffic}
+              className={`w-full mb-4 transition px-4 py-2.5 rounded-lg text-sm font-medium border flex justify-between items-center group ${
+                backgroundTrafficActive
+                  ? 'bg-green-900/30 border-green-500/50 text-green-400 hover:bg-green-900/50'
+                  : 'bg-[#1a1a1a] border-neutral-700 text-neutral-300 hover:bg-neutral-800'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <Navigation size={14} />
+                <span>Background Traffic</span>
+              </span>
+              <span className={`text-xs font-bold ${backgroundTrafficActive ? 'text-green-400' : 'text-neutral-500'}`}>
+                {backgroundTrafficActive ? 'ON' : 'OFF'}
+              </span>
+            </button>
+          )}
 
           {activeMode === 'CITY' && (
             <>
@@ -202,6 +205,7 @@ function App() {
             <ScenarioBtn label="Ambulance — Traffic Light" onClick={() => startScenario('emergency_vehicle')} hoverColor="red" />
             <ScenarioBtn label="Ambulance — No Light" onClick={() => startScenario('emergency_vehicle_no_lights')} hoverColor="orange" />
             <ScenarioBtn label="Drunk Driver" onClick={() => startScenario('drunk_driver')} hoverColor="pink" />
+            <ScenarioBtn label="Drunk Driver — Police Chase" onClick={() => startScenario('drunk_driver_police')} hoverColor="pink" />
           </div>
         </div>
         <button

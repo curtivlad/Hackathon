@@ -14,12 +14,12 @@ LANE_OFFSET = 10.0
 
 class SimulationManager:
 
-    def __init__(self):
+    def __init__(self, mode: str = "CITY"):
         self.infrastructure = InfrastructureAgent()
         self.vehicles: List[VehicleAgent] = []
         self.active_scenario: Optional[str] = None
         self.running = False
-        self.mode: str = "CITY"
+        self.mode: str = mode if mode in ("CITY", "SCENARIO") else "CITY"
         self.stats = {
             "collisions_prevented": 0,
             "total_vehicles": 0,
@@ -34,6 +34,8 @@ class SimulationManager:
             mode = "CITY"
         if self.running:
             self.stop()
+        if bg_traffic.active:
+            bg_traffic.stop()
         self.mode = mode
 
 
@@ -143,6 +145,31 @@ class SimulationManager:
         self.vehicles = [normal, drunk]
         self.active_scenario = "drunk_driver"
 
+    def scenario_drunk_driver_police(self):
+        self._clear_vehicles()
+        drunk = VehicleAgent(
+            agent_id="DRUNK",
+            start_x=100.0,
+            start_y=LANE_OFFSET,
+            direction=270.0,
+            initial_speed=14.0,
+            target_speed=14.0,
+            intention="straight",
+            is_drunk=True,
+        )
+        police = VehicleAgent(
+            agent_id="POLICE",
+            start_x=160.0,
+            start_y=LANE_OFFSET,
+            direction=270.0,
+            initial_speed=22.0,
+            target_speed=22.0,
+            intention="straight",
+            is_police=True,
+        )
+        self.vehicles = [drunk, police]
+        self.active_scenario = "drunk_driver_police"
+
     def start(self, scenario: str = "right_of_way"):
         if self.running:
             self.stop()
@@ -154,6 +181,7 @@ class SimulationManager:
             "right_of_way": self.scenario_right_of_way,
             "multi_vehicle_traffic_light": self.scenario_multi_vehicle_traffic_light,
             "drunk_driver": self.scenario_drunk_driver,
+            "drunk_driver_police": self.scenario_drunk_driver_police,
         }
         scenarios.get(scenario, self.scenario_right_of_way)()
 
