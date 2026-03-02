@@ -2,7 +2,7 @@
 
 **Sistem cooperativ de siguranță rutieră bazat pe agenți AI autonomi cu comunicare Vehicle-to-Everything (V2X).**
 
-> Proiect dezvoltat în cadrul hackathon-ului BEST — echipa **Team MVP**
+> Proiect dezvoltat în cadrul hackathon-ului BEST — echipa **Team MVP**, premiat cu locul **III**
 
 ---
 
