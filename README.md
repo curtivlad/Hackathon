@@ -1,29 +1,29 @@
 # 🚗 V2X Intersection Safety Agent
 
-**Sistem cooperativ de siguranță rutieră bazat pe agenți AI autonomi cu comunicare Vehicle-to-Everything (V2X).**
+**Cooperative road safety system based on autonomous AI agents with Vehicle-to-Everything (V2X) communication.**
 
-> Proiect dezvoltat în cadrul hackathon-ului BEST — echipa **Team MVP**, premiat cu locul **III**
-
----
-
-## Problema
-
-Multe accidente se produc la intersecții cu vizibilitate redusă, unde un șofer nu poate vedea un vehicul care vine din lateral din cauza unui zid, TIR parcat sau unghi mort. Senzorii unui singur vehicul nu pot rezolva această problemă.
-
-## Soluția
-
-Fiecare vehicul este modelat ca un **agent AI autonom** care:
-- Are **memorie proprie** (istoric decizii, near-miss-uri, lecții învățate)
-- **Percepe mediul** prin mesaje V2X (nu doar prin senzori proprii)
-- Ia **decizii autonome** folosind un LLM (**Google Gemini 2.0 Flash**) sau fallback adaptiv
-- **Cooperează** cu ceilalți agenți pentru prevenirea coliziunilor
-- **Nu execută instrucțiuni fixe** — fiecare decizie este contextuală, bazată pe situația curentă și memoria proprie
+> Project developed during the BEST hackathon — team **Team MVP**, awarded **3rd place**
 
 ---
 
-## Arhitectură
+## The Problem
 
-```
+Many accidents occur at intersections with poor visibility, where a driver cannot see a vehicle coming from the side due to a wall, parked truck, or blind spot. A single vehicle's sensors cannot solve this problem.
+
+## The Solution
+
+Each vehicle is modeled as an **autonomous AI agent** that:
+- Has its **own memory** (decision history, near-misses, learned lessons)
+- **Perceives the environment** through V2X messages (not just its own sensors)
+- Makes **autonomous decisions** using an LLM (**Google Gemini 2.0 Flash**) or adaptive fallback
+- **Cooperates** with other agents to prevent collisions
+- **Does not execute fixed instructions** — each decision is contextual, based on the current situation and its own memory
+
+---
+
+## Architecture
+
+```text
 ┌──────────────────────────────────────────────────────────────┐
 │                 Frontend (React 18 + Vite + Tailwind)        │
 │  ┌────────────┐ ┌──────────┐ ┌─────────┐ ┌──────────────┐   │
@@ -38,9 +38,9 @@ Fiecare vehicul este modelat ca un **agent AI autonom** care:
 └────────────────────┼─────────────────────────────────────────┘
                      │
 ┌────────────────────┼─────────────────────────────────────────┐
-│               FastAPI Backend                                │
+│                FastAPI Backend                               │
 │  ┌─────────────────┼──────────────────────────────────────┐  │
-│  │          Simulation Manager                            │  │
+│  │             Simulation Manager                         │  │
 │  │  ┌─────────────┐ ┌─────────────┐ ┌──────────────────┐ │  │
 │  │  │ Vehicle     │ │ Vehicle     │ │  Infrastructure  │ │  │
 │  │  │ Agent A     │ │ Agent B     │ │  (Traffic Light) │ │  │
@@ -62,10 +62,10 @@ Fiecare vehicul este modelat ca un **agent AI autonom** care:
 │  └────────────────────────────────────────────────────────┘  │
 │  ┌────────────────┐ ┌────────────────┐ ┌─────────────────┐  │
 │  │  Telemetry     │ │ Circuit Breaker│ │ Background      │  │
-│  │  Collector     │ │   (LLM)       │ │ Traffic (Grid)  │  │
+│  │  Collector     │ │   (LLM)        │ │ Traffic (Grid)  │  │
 │  └────────────────┘ └────────────────┘ └─────────────────┘  │
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │  Intersection Coordinator (5×5 Grid, 4 semaforizate)  │  │
+│  │  Intersection Coordinator (5×5 Grid, 4 traffic lights) │  │
 │  └────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -74,20 +74,20 @@ Fiecare vehicul este modelat ca un **agent AI autonom** care:
 
 ## Quick Start
 
-### Opțiunea 1: Docker Compose (recomandat)
+### Option 1: Docker Compose (recommended)
 
 ```bash
-# 1. Creează fișierul .env în rădăcina proiectului
+# 1. Create the .env file in the project root
 cp .env.example .env
-# Editează .env — adaugă GEMINI_API_KEY și API_TOKEN
+# Edit .env — add GEMINI_API_KEY and API_TOKEN
 
-# 2. Pornește
+# 2. Start
 docker compose up --build
 
-# 3. Deschide http://localhost:3000
+# 3. Open http://localhost:3000
 ```
 
-### Opțiunea 2: Manual
+### Option 2: Manual
 
 ```bash
 # Backend
@@ -95,15 +95,15 @@ cd backend
 pip install -r requirements.txt
 python main.py
 
-# Frontend (alt terminal)
+# Frontend (different terminal)
 cd frontend
 npm install
 npm run dev
 
-# Deschide http://localhost:3000
+# Open http://localhost:3000
 ```
 
-### Configurare API Key
+### API Key Configuration
 
 ```bash
 # Linux / Mac
@@ -112,238 +112,238 @@ export GEMINI_API_KEY=your-google-api-key
 # PowerShell (Windows)
 $env:GEMINI_API_KEY="your-google-api-key"
 
-# Sau editează .env în rădăcina proiectului
+# Or edit .env in the project root
 ```
 
-> **Notă:** Fără cheie Gemini API, sistemul funcționează cu fallback adaptiv (reguli). Cu cheia, fiecare vehicul ia decizii prin LLM.
+> **Note:** Without a Gemini API key, the system operates with adaptive fallback (rules). With the key, each vehicle makes decisions via LLM.
 
 ---
 
-## Moduri de Operare
+## Operating Modes
 
-Aplicația oferă două moduri, selectable din meniul principal:
+The application offers two modes, selectable from the main menu:
 
 ### 🏙 City Mode
 
-Ecosistem complet de trafic urban pe o grilă de **5×5 intersecții** (25 intersecții conectate) cu **25 vehicule persistente** care circulă pe toată harta. Vehiculele:
-- Decid autonom la fiecare intersecție (stânga, dreapta, drept)
-- Respectă semafoarele (4 intersecții semaforizate) și regula priorității de dreapta
-- Mențin distanța de siguranță față de vehiculul din față
-- Cedează trecerea vehiculelor de urgență (pull-over pe marginea drumului)
-- Circulă pe partea dreaptă a drumului (stil european)
+Complete urban traffic ecosystem on a grid of **5×5 intersections** (25 connected intersections) with **25 persistent vehicles** driving across the entire map. Vehicles:
+- Decide autonomously at each intersection (left, right, straight)
+- Obey traffic lights (4 signalized intersections) and the right-of-way rule
+- Maintain a safe following distance from the vehicle ahead
+- Yield to emergency vehicles (pull-over to the side of the road)
+- Drive on the right side of the road (European style)
 
-Din City Mode se pot genera vehicule speciale:
-- **🍷 Drunk Driver** — vehicul cu comportament erratic
-- **🚔 Police Car** — vehicul de poliție (urmărire șoferi beți)
-- **🚑 Ambulance** — vehicul de urgență cu prioritate absolută
+Special vehicles can be spawned from City Mode:
+- **🍷 Drunk Driver** — vehicle with erratic behavior
+- **🚔 Police Car** — police vehicle (chasing drunk drivers)
+- **🚑 Ambulance** — emergency vehicle with absolute priority
 
 ### 🧪 Scenario Mode
 
-Scenarii predefinite pentru demonstrații:
+Predefined scenarios for demonstrations:
 
-| Scenariu | Vehicule | Descriere |
+| Scenario | Vehicles | Description |
 |---------|----------|-----------|
-| 3 Vehicles — Right of Way | 3 | 3 vehicule din 3 direcții, fără semafor — negociere prioritate dreapta |
-| 4 Vehicles — Traffic Light | 4 | 4 vehicule din toate direcțiile cu semafor inteligent activ |
-| Ambulance — Traffic Light | 2 | Ambulanță vs vehicul normal cu semafor (preemțiune) |
-| Ambulance — No Light | 2 | Ambulanță vs vehicul normal fără semafor (prioritate V2X) |
-| Drunk Driver | 2 | Vehicul normal vs șofer beat cu comportament erratic |
-| Drunk Driver — Police Chase | 2 | Poliție care urmărește un șofer beat |
+| 3 Vehicles — Right of Way | 3 | 3 vehicles from 3 directions, no traffic light — right-of-way negotiation |
+| 4 Vehicles — Traffic Light | 4 | 4 vehicles from all directions with active smart traffic light |
+| Ambulance — Traffic Light | 2 | Ambulance vs normal vehicle with traffic light (preemption) |
+| Ambulance — No Light | 2 | Ambulance vs normal vehicle without traffic light (V2X priority) |
+| Drunk Driver | 2 | Normal vehicle vs drunk driver with erratic behavior |
+| Drunk Driver — Police Chase | 2 | Police chasing a drunk driver |
 
 ---
 
-## Cum Funcționează AI-ul
+## How the AI Works
 
-Fiecare vehicul este un **agent AI independent** cu propriul **LLM Brain** (Google Gemini 2.0 Flash):
+Each vehicle is an **independent AI agent** with its own **LLM Brain** (Google Gemini 2.0 Flash):
 
-### Pipeline de Decizie
+### Decision Pipeline
 
+```text
+1. PERCEPTION   → Receives position, speed, intentions of other vehicles via V2X
+2. MEMORY       → Consults decision history, near-misses, learned lessons
+3. LLM CONTEXT  → Builds a prompt with current situation + memory + V2X alerts
+4. DECISION (LLM)→ Gemini responds with { action, speed, reason } in JSON
+5. SAFETY OVERRIDE→ Physical rules (red light, inside intersection) take priority
+6. EXECUTION    → Action is applied to the vehicle
+7. LEARNING     → Result is saved in memory for future decisions
 ```
-1. PERCEPȚIE      → Primește poziția, viteza, intențiile altor vehicule via V2X
-2. MEMORIE        → Consultă istoricul de decizii, near-miss-uri, lecții învățate
-3. CONTEXT LLM    → Construiește un prompt cu situația curentă + memorie + alerte V2X
-4. DECIZIE (LLM)  → Gemini răspunde cu { action, speed, reason } în JSON
-5. SAFETY OVERRIDE→ Reguli fizice (semafor roșu, interior intersecție) au prioritate
-6. EXECUȚIE       → Acțiunea se aplică vehiculului
-7. ÎNVĂȚARE       → Rezultatul se salvează în memorie pentru decizii viitoare
-```
 
-### Memorie Proprie (AgentMemory)
+### Own Memory (AgentMemory)
 
-Fiecare agent menține persistent pe durata simulării:
-- **Istoric decizii** — ultimele 20 de decizii cu context complet
-- **Near-miss-uri** — situații periculoase (TTC, vehicul implicat, locație)
-- **Lecții învățate** — reguli extrase automat din experiență
-- **Alerte V2X** — mesaje primite de la alte vehicule și infrastructură
-- **Statistici** — total opriri, cedări, frânări, timp de așteptare
-- **Detecție oscilații** — identifică pattern-uri de decizie contradictorie (go/stop/go/stop)
+Each agent persistently maintains throughout the simulation:
+- **Decision history** — the last 20 decisions with full context
+- **Near-misses** — dangerous situations (TTC, involved vehicle, location)
+- **Learned lessons** — rules automatically extracted from experience
+- **V2X alerts** — messages received from other vehicles and infrastructure
+- **Statistics** — total stops, yields, brakes, wait time
+- **Oscillation detection** — identifies contradictory decision patterns (go/stop/go/stop)
 
-### Circuit Breaker (Reziliență LLM)
+### Circuit Breaker (LLM Resilience)
 
-- Dacă API-ul Gemini generează **5+ erori în 30s** → LLM dezactivat automat
-- După **30s cooldown** → testează un singur apel → reactivare dacă reușește
-- Vehiculele **nu sunt blocate** — trec instant la fallback adaptiv
+- If the Gemini API generates **5+ errors in 30s** → LLM automatically disabled
+- After **30s cooldown** → tests a single call → reactivated if successful
+- Vehicles **are not blocked** — they instantly switch to adaptive fallback
 
-### Fallback Adaptiv
+### Adaptive Fallback
 
-Când LLM-ul nu este disponibil, agentul folosește reguli adaptive:
-- Starea semaforului (oprire la roșu, pornire la verde)
-- Regulă prioritate de dreapta (intersecții fără semafor)
-- Time-To-Collision cu vehiculele din apropiere
-- Distanță de siguranță față de vehiculul din față
-- Cedare vehiculelor de urgență
+When the LLM is unavailable, the agent uses adaptive rules:
+- Traffic light state (stop at red, go at green)
+- Right-of-way rule (intersections without traffic lights)
+- Time-To-Collision with nearby vehicles
+- Safe following distance from the vehicle ahead
+- Yield to emergency vehicles
 
 ---
 
-## Funcționalități Principale
+## Main Features
 
-### Comunicare V2X
-- **V2V** (Vehicle-to-Vehicle) — vehiculele își partajează starea (poziție, viteză, direcție, intenție)
-- **V2I** (Vehicle-to-Infrastructure) — semaforul inteligent primește date de la vehicule și transmite recomandări
-- **Mesaje HMAC-SHA256** — fiecare mesaj V2X semnat criptografic
-- **Anti-flood** — rate limiting per agent pe broadcast-uri
+### V2X Communication
+- **V2V** (Vehicle-to-Vehicle) — vehicles share their state (position, speed, heading, intention)
+- **V2I** (Vehicle-to-Infrastructure) — smart traffic light receives data from vehicles and transmits recommendations
+- **HMAC-SHA256 messages** — each V2X message is cryptographically signed
+- **Anti-flood** — rate limiting per agent on broadcasts
 
-### Detecție Risc de Coliziune
-- **Time-To-Collision (TTC)** calculat în timp real per pereche de vehicule
-- **Niveluri de risc**: `low`, `medium`, `high`, `collision`
-- **Alerte vizuale** — zone de risc evidențiate pe hartă
+### Collision Risk Detection
+- **Time-To-Collision (TTC)** calculated in real-time per vehicle pair
+- **Risk levels**: `low`, `medium`, `high`, `collision`
+- **Visual alerts** — risk zones highlighted on the map
 
-### Negociere de Prioritate
-- **Regula priorității de dreapta** (intersecții fără semafor)
-- **Vehicule de urgență** cu prioritate absolută
-- **Preemțiune semafor** — semaforul se schimbă automat pentru ambulanțe
+### Priority Negotiation
+- **Right-of-way rule** (intersections without traffic lights)
+- **Emergency vehicles** with absolute priority
+- **Traffic light preemption** — traffic light changes automatically for ambulances
 
 ### Ambulance Pull-Over
-- Mașinile detectează ambulanța în spate și **trag pe marginea drumului**
-- Dacă sunt **în intersecție**, accelerează mai întâi, apoi opresc după ce au ieșit
-- Poziția de oprire este **pe marginea benzii**, nu în afara drumului
-- După trecerea ambulanței, revin în bandă și continuă
+- Cars detect the ambulance behind them and **pull over to the side of the road**
+- If they are **in the intersection**, they accelerate first, then stop after exiting
+- The stop position is **on the edge of the lane**, not off the road
+- After the ambulance passes, they return to the lane and continue
 
-### Distanță de Siguranță (Following Distance)
-- Vehiculele detectează dacă au alt vehicul **în față pe aceeași bandă**
-- **Încetinesc progresiv** și mențin distanța — nu trec prin vehiculul din față
-- Se aplică **doar pe același sens** — nu frânează pentru mașini pe contrasens
+### Following Distance
+- Vehicles detect if they have another vehicle **ahead in the same lane**
+- They **decelerate progressively** and maintain distance — they do not pass through the vehicle ahead
+- Only applies **in the same direction** — does not brake for oncoming cars
 
-### Comportament Emergent
-- **Drunk Driver** — se clatină, ignoră semafoare (70% din cazuri), frânează/accelerează aleatoriu
-- **Police Chase** — poliția urmărește și „arestează" șoferul beat
-- **Ambulance Yield** — vehiculele trag pe dreapta autonom
+### Emergent Behavior
+- **Drunk Driver** — swerves, ignores traffic lights (70% of cases), brakes/accelerates randomly
+- **Police Chase** — police chase and "arrest" the drunk driver
+- **Ambulance Yield** — vehicles pull over autonomously
 
-### Grilă de Intersecții
-- **5×5 intersecții** (25 total) conectate pe o grilă rectangulară
-- **4 intersecții semaforizate** cu cicluri independente
-- **21 intersecții cu prioritate** (regulă de dreapta)
-- Vehiculele circulă pe **partea dreaptă** (european)
-- La fiecare intersecție, vehiculele **decid autonom** direcția (stânga/dreapta/drept)
-
----
-
-## Securitate
-
-| Funcționalitate | Implementare |
-|----------------|-------------|
-| Integritate mesaje | HMAC-SHA256 pe fiecare mesaj V2X |
-| Validare date | Verificări range, NaN/Inf, tipuri corecte |
-| Agenți inactivi | Detecție automată + cleanup (timeout 5s) |
-| Anti-flood V2X | Rate limiting pe broadcast per agent |
-| Anti-flood REST | Rate limiting per IP per minut (configurable) |
-| Autentificare | Bearer Token pe REST + query param pe WebSocket |
-| Sanitizare output | Date curățate înainte de trimitere la frontend |
-| Circuit breaker | Protecție automată dacă API-ul LLM cedează |
-| Protecție telemetrie | Datele de localizare nu se transmit fără protecție |
-| Max conexiuni WS | Limită hard de conexiuni WebSocket simultane |
+### Intersection Grid
+- **5×5 intersections** (25 total) connected on a rectangular grid
+- **4 signalized intersections** with independent cycles
+- **21 priority intersections** (right-of-way rule)
+- Vehicles drive on the **right side** (European)
+- At each intersection, vehicles **decide autonomously** the direction (left/right/straight)
 
 ---
 
-## Accesibilitate
+## Security
 
-### 🎤 Comenzi Vocale (Speech Recognition)
+| Feature | Implementation |
+|---------|----------------|
+| Message integrity | HMAC-SHA256 on every V2X message |
+| Data validation | Range checks, NaN/Inf, correct types |
+| Inactive agents | Automatic detection + cleanup (5s timeout) |
+| V2X Anti-flood | Rate limiting on broadcast per agent |
+| REST Anti-flood | Rate limiting per IP per minute (configurable) |
+| Authentication | Bearer Token on REST + query param on WebSocket |
+| Output sanitization | Data cleaned before sending to frontend |
+| Circuit breaker | Automatic protection if LLM API fails |
+| Telemetry protection| Location data is not transmitted without protection |
+| Max WS connections | Hard limit on simultaneous WebSocket connections |
 
-Buton **Mic** în colțul dreapta-jos (OFF implicit). Comenzi suportate (EN + RO):
+---
 
-| Comandă | Acțiune |
+## Accessibility
+
+### 🎤 Voice Commands (Speech Recognition)
+
+**Mic** button in the bottom-right corner (OFF by default). Supported commands (EN + RO):
+
+| Command | Action |
 |---------|---------|
-| `start` / `pornește` / `începe` | Pornește scenariu (+ variante: `start ambulance`, `start traffic light`, `start drunk`) |
-| `stop` / `oprește` | Oprește simularea |
-| `restart` / `reset` / `restartează` | Repornește simularea |
-| `zoom in` / `mărește` | Mărește zoom-ul |
-| `zoom out` / `micșorează` | Micșorează zoom-ul |
-| `spawn` / `drunk` / `beat` | Adaugă un șofer beat |
-| `police` / `poliție` | Adaugă o mașină de poliție |
+| `start` / `pornește` / `începe` | Start scenario (+ variants: `start ambulance`, `start traffic light`, `start drunk`) |
+| `stop` / `oprește` | Stop simulation |
+| `restart` / `reset` / `restartează` | Restart simulation |
+| `zoom in` / `mărește` | Zoom in |
+| `zoom out` / `micșorează` | Zoom out |
+| `spawn` / `drunk` / `beat` | Spawn a drunk driver |
+| `police` / `poliție` | Spawn a police car |
 | `traffic` / `trafic` | Toggle background traffic |
 
 ### 🔊 TTS Alerts (Text-to-Speech)
 
-Buton **Volume** în colțul dreapta-jos (OFF implicit). Anunță vocal alertele de coliziune.
+**Volume** button in the bottom-right corner (OFF by default). Vocally announces collision alerts.
 
-### ⌨️ Shortcut-uri Tastatură
+### ⌨️ Keyboard Shortcuts
 
-| Tastă | Acțiune |
-|-------|---------|
-| `1` | Scenariu: 3 Vehicles — Right of Way |
-| `2` | Scenariu: 4 Vehicles — Traffic Light |
-| `3` | Scenariu: Ambulance — Traffic Light |
-| `4` | Scenariu: Ambulance — No Light |
-| `S` | Stop simulare |
-| `R` | Restart simulare |
+| Key | Action |
+|-----|--------|
+| `1` | Scenario: 3 Vehicles — Right of Way |
+| `2` | Scenario: 4 Vehicles — Traffic Light |
+| `3` | Scenario: Ambulance — Traffic Light |
+| `4` | Scenario: Ambulance — No Light |
+| `S` | Stop simulation |
+| `R` | Restart simulation |
 | `B` | Toggle background traffic |
 
 ### 🎨 Design
-- **Dark mode** cu contrast ridicat
-- **Culori distincte** per stare de decizie (GO / YIELD / BRAKE / STOP)
-- **Panouri laterale retractabile**
-- **Zoom** — slider + scroll mouse
-- **Drag** — click-and-drag pe hartă pentru navigare
+- **Dark mode** with high contrast
+- **Distinct colors** per decision state (GO / YIELD / BRAKE / STOP)
+- **Retractable side panels**
+- **Zoom** — slider + mouse scroll
+- **Drag** — click-and-drag on the map to navigate
 
 ---
 
-## Telemetrie și Rapoarte
+## Telemetry and Reports
 
-| Endpoint | Descriere |
-|---------|-----------|
-| `GET /telemetry/report` | Raport: durată sesiune, coliziuni prevenite, throughput, risc, scor cooperare (0–100) |
-| `POST /telemetry/export` | Export telemetrie în fișier JSON |
-| `GET /telemetry/history` | Istoric rapoarte |
+| Endpoint | Description |
+|----------|-------------|
+| `GET /telemetry/report` | Report: session duration, collisions prevented, throughput, risk, cooperation score (0–100) |
+| `POST /telemetry/export` | Export telemetry to JSON file |
+| `GET /telemetry/history` | Reports history |
 
 ---
 
-## Structura Proiectului
+## Project Structure
 
-```
+```text
 ├── backend/
 │   ├── main.py                    # FastAPI server + auth + rate limiting
-│   ├── simulation.py              # Manager scenarii + lifecycle
-│   ├── agents.py                  # VehicleAgent cu LLM Brain + fallback adaptiv
+│   ├── simulation.py              # Scenario manager + lifecycle
+│   ├── agents.py                  # VehicleAgent with LLM Brain + adaptive fallback
 │   ├── llm_brain.py               # LLM (Gemini) + AgentMemory + CircuitBreaker
-│   ├── v2x_channel.py             # Canal V2X securizat (HMAC-SHA256)
-│   ├── v2x_security.py            # Validare, stale detection, rate limiting
-│   ├── collision_detector.py      # Detecție TTC (Time-To-Collision)
-│   ├── priority_negotiation.py    # Reguli de prioritate (dreapta, urgență)
-│   ├── infrastructure_agent.py    # Semafor inteligent V2I cu preemțiune urgență
-│   ├── intersection_coordinator.py# Coordonator intersecții grilă (5×5)
-│   ├── background_traffic.py      # 25 vehicule persistente pe grilă
-│   ├── telemetry.py               # Colector telemetrie + rapoarte + export
-│   └── tests/                     # Teste unitare
+│   ├── v2x_channel.py             # Secure V2X channel (HMAC-SHA256)
+│   ├── v2x_security.py            # Validation, stale detection, rate limiting
+│   ├── collision_detector.py      # TTC (Time-To-Collision) detection
+│   ├── priority_negotiation.py    # Priority rules (right, emergency)
+│   ├── infrastructure_agent.py    # Smart V2I traffic light with emergency preemption
+│   ├── intersection_coordinator.py# Grid intersection coordinator (5×5)
+│   ├── background_traffic.py      # 25 persistent vehicles on grid
+│   ├── telemetry.py               # Telemetry collector + reports + export
+│   └── tests/                     # Unit tests
 │       ├── test_collision.py
 │       ├── test_priority.py
 │       ├── test_security.py
 │       └── test_llm_brain.py
 ├── frontend/
 │   └── src/
-│       ├── App.jsx                # Layout principal + City/Scenario mode
-│       ├── main.jsx               # Entry point React
-│       ├── index.css              # Stiluri globale + animații
+│       ├── App.jsx                # Main layout + City/Scenario mode
+│       ├── main.jsx               # React entry point
+│       ├── index.css              # Global styles + animations
 │       ├── components/
-│       │   ├── IntersectionMap.jsx # Hartă 2D canvas (grilă 5×5)
-│       │   ├── VehicleStatus.jsx  # Status vehicule + info memorie AI
-│       │   ├── RiskAlert.jsx      # Alerte coliziune
-│       │   ├── EventLog.jsx       # Jurnal evenimente
-│       │   ├── MainMenu.jsx       # Meniu principal (City / Scenario)
-│       │   └── V2XLog.jsx         # Log comunicare V2X
+│       │   ├── IntersectionMap.jsx # 2D canvas map (5×5 grid)
+│       │   ├── VehicleStatus.jsx  # Vehicle status + AI memory info
+│       │   ├── RiskAlert.jsx      # Collision alerts
+│       │   ├── EventLog.jsx       # Event log
+│       │   ├── MainMenu.jsx       # Main menu (City / Scenario)
+│       │   └── V2XLog.jsx         # V2X communication log
 │       └── hooks/
 │           ├── useWebSocket.js        # WebSocket + REST API
-│           ├── useKeyboardShortcuts.js # Shortcut-uri tastatură
-│           └── useVoiceControl.js     # Comenzi vocale + TTS
+│           ├── useKeyboardShortcuts.js # Keyboard shortcuts
+│           └── useVoiceControl.js     # Voice commands + TTS
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
@@ -353,86 +353,86 @@ Buton **Volume** în colțul dreapta-jos (OFF implicit). Anunță vocal alertele
 
 ## Tech Stack
 
-| Layer | Tehnologii |
-|-------|-----------|
+| Layer | Technologies |
+|-------|--------------|
 | **Backend** | Python 3.11, FastAPI, Uvicorn, Google Gemini AI (2.0 Flash) |
 | **Frontend** | React 18, Vite 5, Tailwind CSS 3, Lucide Icons |
-| **Comunicare** | WebSocket (real-time, ~50ms) + REST API |
+| **Communication** | WebSocket (real-time, ~50ms) + REST API |
 | **AI / LLM** | Google Gemini 2.0 Flash via `google-genai` SDK |
-| **Securitate** | HMAC-SHA256, Bearer Token Auth, Rate Limiting |
-| **Accesibilitate** | Web Speech API (Recognition + Synthesis) |
+| **Security** | HMAC-SHA256, Bearer Token Auth, Rate Limiting |
+| **Accessibility**| Web Speech API (Recognition + Synthesis) |
 | **Deploy** | Docker + Docker Compose |
 
 ---
 
 ## API Endpoints
 
-| Metodă | Endpoint | Descriere |
-|--------|---------|-----------|
-| `GET` | `/` | Status server + info LLM |
-| `WS` | `/ws?token=...` | WebSocket real-time (~50ms update) |
-| `POST` | `/simulation/init` | Inițializare mod (CITY / SCENARIO) |
-| `POST` | `/simulation/start/{scenario}` | Pornire scenariu |
-| `POST` | `/simulation/stop` | Oprire simulare |
-| `POST` | `/simulation/restart` | Repornire simulare |
-| `GET` | `/simulation/state` | Stare curentă |
-| `GET` | `/simulation/scenarios` | Lista scenarii disponibile |
-| `POST` | `/simulation/spawn-drunk` | Adaugă șofer beat |
-| `POST` | `/simulation/spawn-police` | Adaugă mașină de poliție |
-| `POST` | `/simulation/spawn-ambulance` | Adaugă ambulanță |
-| `POST` | `/background-traffic/start` | Pornire trafic background |
-| `POST` | `/background-traffic/stop` | Oprire trafic background |
-| `GET` | `/v2x/channel` | Stare canal V2X |
-| `GET` | `/v2x/history` | Istoric mesaje V2X |
-| `GET` | `/grid` | Informații grilă intersecții |
-| `GET` | `/telemetry/report` | Raport telemetrie |
-| `POST` | `/telemetry/export` | Export telemetrie JSON |
-| `GET` | `/telemetry/history` | Istoric rapoarte |
-| `GET` | `/security/stats` | Statistici securitate + circuit breaker |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/` | Server status + LLM info |
+| `WS` | `/ws?token=...` | Real-time WebSocket (~50ms update) |
+| `POST` | `/simulation/init` | Initialize mode (CITY / SCENARIO) |
+| `POST` | `/simulation/start/{scenario}` | Start scenario |
+| `POST` | `/simulation/stop` | Stop simulation |
+| `POST` | `/simulation/restart` | Restart simulation |
+| `GET` | `/simulation/state` | Current state |
+| `GET` | `/simulation/scenarios` | List of available scenarios |
+| `POST` | `/simulation/spawn-drunk` | Spawn drunk driver |
+| `POST` | `/simulation/spawn-police` | Spawn police car |
+| `POST` | `/simulation/spawn-ambulance` | Spawn ambulance |
+| `POST` | `/background-traffic/start` | Start background traffic |
+| `POST` | `/background-traffic/stop` | Stop background traffic |
+| `GET` | `/v2x/channel` | V2X channel state |
+| `GET` | `/v2x/history` | V2X message history |
+| `GET` | `/grid` | Intersection grid information |
+| `GET` | `/telemetry/report` | Telemetry report |
+| `POST` | `/telemetry/export` | Export telemetry JSON |
+| `GET` | `/telemetry/history` | Reports history |
+| `GET` | `/security/stats` | Security stats + circuit breaker |
 
 ---
 
-## Scalabilitate
+## Scalability
 
-- **25 vehicule persistente** pe grila de 5×5 intersecții (City Mode)
-- **5+ vehicule suplimentare** pot fi adăugate dinamic (drunk, police, ambulance)
-- **25 intersecții conectate**, din care 4 semaforizate
-- **Circuit breaker** pentru reziliență LLM
-- **Rate limiting** per IP pentru protecție flood
-- Arhitectură pregătită pentru **Redis state-store** (scalare orizontală)
-- Fiecare agent este **independent** — arhitectură extensibilă
+- **25 persistent vehicles** on the 5×5 intersection grid (City Mode)
+- **5+ supplementary vehicles** can be spawned dynamically (drunk, police, ambulance)
+- **25 connected intersections**, of which 4 signalized
+- **Circuit breaker** for LLM resilience
+- **Rate limiting** per IP for flood protection
+- Architecture ready for **Redis state-store** (horizontal scaling)
+- Each agent is **independent** — extensible architecture
 
 ---
 
-## Cerințe Hackathon Acoperite
+## Hackathon Requirements Covered
 
-### Cerințe de Bază ✅
-- [x] Cel puțin 2 agenți simulați care își partajează starea și reacționează la starea celuilalt
-- [x] Logică de decizie funcțională — agenții iau decizii bazate pe datele primite prin V2X
-- [x] Scenariu de risc demonstrabil — fără cooperare → coliziune, cu cooperare → evitare
-- [x] Vizualizare 2D a scenariului în timp real
+### Base Requirements ✅
+- [x] At least 2 simulated agents that share their state and react to each other's state
+- [x] Functional decision logic — agents make decisions based on data received via V2X
+- [x] Demonstrable risk scenario — no cooperation → collision, with cooperation → avoidance
+- [x] Real-time 2D visualization of the scenario
 
 ### Minimum Demo ✅
-- [x] Comunicare V2X implementată (canal HMAC, partajare stare, reacție la date)
-- [x] Vizualizare operațională (hartă 2D canvas, vehicule, semafoare, zone risc)
-- [x] Cel puțin 1 scenariu end-to-end funcțional (detecție risc → decizie → execuție)
+- [x] Implemented V2X communication (HMAC channel, state sharing, reaction to data)
+- [x] Operational visualization (2D canvas map, vehicles, traffic lights, risk zones)
+- [x] At least 1 fully functional end-to-end scenario (risk detection → decision → execution)
 
-### Criterii de Evaluare
+### Evaluation Criteria
 
-| Criteriu | Status | Detalii |
-|----------|--------|---------|
-| Funcționalitate & Utilitate | ✅ | Simulare corectă V2X, flux complet detecție → negociere → prevenire |
-| UX & Design | ✅ | Interfață dark intuitivă, zone risc vizibile, decizii clare pe hartă |
-| Securitate & Integritate | ✅ | HMAC, auth, rate limit, stale detection, circuit breaker, sanitizare |
-| Inovație & Creativitate | ✅ | LLM cu memorie proprie, police chase, drunk driver, ambulance pull-over |
-| Calitate Execuție & Stabilitate | ✅ | Prototip stabil, circuit breaker, fallback adaptiv, teste unitare |
-| Impact & Scalabilitate | ✅ | Grilă 5×5, 25+ vehicule, arhitectură extensibilă |
+| Criterion | Status | Details |
+|-----------|--------|---------|
+| Functionality & Utility | ✅ | Correct V2X simulation, full flow detection → negotiation → prevention |
+| UX & Design | ✅ | Intuitive dark interface, visible risk zones, clear decisions on map |
+| Security & Integrity | ✅ | HMAC, auth, rate limit, stale detection, circuit breaker, sanitization |
+| Innovation & Creativity| ✅ | LLM with own memory, police chase, drunk driver, ambulance pull-over |
+| Execution Quality & Stability | ✅ | Stable prototype, circuit breaker, adaptive fallback, unit tests |
+| Impact & Scalability | ✅ | 5×5 grid, 25+ vehicles, extensible architecture |
 
-### Puncte Bonus
+### Bonus Points
 
-| Criteriu Bonus | Status | Detalii |
-|----------------|--------|---------|
-| 2+ intersecții conectate V2X | ✅ | 25 intersecții pe aceeași grilă V2X |
-| Comenzi vocale / TTS | ✅ | Speech Recognition + TTS cu toggle ON/OFF |
-| 5+ vehicule simultane | ✅ | 25 vehicule background + drunk/police/ambulance |
-| Telemetrie & rapoarte | ✅ | Endpoint `/telemetry/report` cu scor cooperare |
+| Bonus Criterion | Status | Details |
+|-----------------|--------|---------|
+| 2+ V2X connected intersections | ✅ | 25 intersections on the same V2X grid |
+| Voice commands / TTS | ✅ | Speech Recognition + TTS with ON/OFF toggle |
+| 5+ simultaneous vehicles | ✅ | 25 background vehicles + drunk/police/ambulance |
+| Telemetry & reports | ✅ | Endpoint `/telemetry/report` with cooperation score |
